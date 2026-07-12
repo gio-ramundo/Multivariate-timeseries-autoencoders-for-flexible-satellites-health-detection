@@ -1,0 +1,154 @@
+"""Grid search sui range ristretti prodotti dall'ottimizzazione bayesiana.
+
+Un prodotto cartesiano esaustivo su ~10 iperparametri esplode rapidamente
+(anche con solo 3 punti per iperparametro si arriva a 3^10 ~= 59000 combinazioni).
+Per questo la griglia completa viene eventualmente sotto-campionata in modo
+casuale (seedato) fino a `max_combinations`, mantenendo comunque solo punti
+sulla griglia (non e' un sampling continuo come nel bayesiano).
+"""
+
+from __future__ import annotations
+
+import itertools
+import time
+from typing import Any
+
+import numpy as np
+import torch
+from torch import nn
+from torch.utils.data import DataLoader, TensorDataset
+
+from .config import HyperparamRange
+from .models import build_model, count_parameters
+from .preprocessing import PreprocessedData
+from .utils.io import ResultsPaths, save_json, save_table
+from .utils.logging_utils import get_logger
+
+
+def _grid_values_for_range(rng: HyperparamRange, resolution: int) -> list[Any]:
+    if rng.kind == "categorical":
+        return list(rng.choices)
+    if rng.kind == "int":
+        points = np.linspace(rng.low, rng.high, resolution)
+        return sorted({int(round(p)) for p in points})
+    points = np.geomspace(max(rng.low, 1e-12), rng.high, resolution) if rng.log else np.linspace(rng.low, rng.high, resolution)
+    return sorted({float(p) for p in points})
+
+
+def build_grid(
+    narrow_ranges: dict[str, HyperparamRange], resolution: int, max_combinations: int, seed: int = 0
+) -> list[dict[str, Any]]:
+    names = list(narrow_ranges.keys())
+    value_lists = [_grid_values_for_range(narrow_ranges[name], resolution) for name in names]
+
+    full_grid = []
+    for combo in itertools.product(*value_lists):
+        hp = dict(zip(names, combo))
+        if hp["padding"] > hp["kernel_size"] // 2:
+            continue  # combinazione non valida, scartata
+        full_grid.append(hp)
+
+    if not full_grid:
+        raise RuntimeError("La griglia costruita e' vuota: controllare i range ristretti in input")
+
+    if len(full_grid) > max_combinations:
+        rng_np = np.random.default_rng(seed)
+        idx = rng_np.choice(len(full_grid), size=max_combinations, replace=False)
+        return [full_grid[i] for i in sorted(idx)]
+    return full_grid
+
+
+def run_grid_search(
+    arch_name: str,
+    data: PreprocessedData,
+    narrow_ranges: dict[str, HyperparamRange],
+    results_paths: ResultsPaths,
+    epochs: int,
+    resolution: int,
+    max_combinations: int,
+    seed: int = 0,
+) -> dict[str, Any]:
+    logger = get_logger("grid_search", results_paths.logs / "grid_search.log")
+
+    try:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        logger.info("Device selezionato per la grid search: %s", device)
+
+        input_len = data.train.shape[1]
+        n_features = data.train.shape[2]
+
+        grid = build_grid(narrow_ranges, resolution, max_combinations, seed)
+        logger.info("Grid search: %d combinazioni da valutare", len(grid))
+
+        val_tensor = torch.from_numpy(data.val).float().to(device)
+        loss_fn = nn.MSELoss()
+
+        records: list[dict[str, Any]] = []
+        best_hp: dict[str, Any] | None = None
+        best_val_mse = float("inf")
+        start_time = time.time()
+
+        for i, hp in enumerate(grid):
+            try:
+                torch.manual_seed(seed + i)
+                model = build_model(arch_name, hp, input_len, n_features).to(device)
+                optimizer = torch.optim.Adam(model.parameters(), lr=hp["learning_rate"], weight_decay=hp["weight_decay"])
+
+                train_loader = DataLoader(
+                    TensorDataset(torch.from_numpy(data.train).float()), batch_size=hp["batch_size"], shuffle=True
+                )
+
+                combo_start = time.time()
+                model.train()
+                for _ in range(epochs):
+                    for (batch,) in train_loader:
+                        batch = batch.to(device)
+                        optimizer.zero_grad()
+                        recon = model(batch)
+                        loss = loss_fn(recon, batch)
+                        loss.backward()
+                        optimizer.step()
+
+                model.eval()
+                with torch.no_grad():
+                    val_mse = loss_fn(model(val_tensor), val_tensor).item()
+                combo_elapsed = time.time() - combo_start
+
+                if not np.isfinite(val_mse):
+                    raise ValueError(f"val_mse non finito: {val_mse}")
+
+                records.append({**hp, "val_mse": val_mse, "n_parameters": count_parameters(model), "seconds": combo_elapsed})
+
+                if val_mse < best_val_mse:
+                    best_val_mse = val_mse
+                    best_hp = hp
+                    logger.info("Nuovo migliore alla combinazione %d/%d: val_mse=%.6g", i + 1, len(grid), val_mse)
+            except (ValueError, RuntimeError) as exc:
+                logger.warning("Combinazione %d/%d scartata: %s", i + 1, len(grid), exc)
+            except Exception:
+                logger.exception("Combinazione %d/%d fallita per errore inatteso", i + 1, len(grid))
+
+        elapsed = time.time() - start_time
+
+        if best_hp is None:
+            raise RuntimeError("Nessuna combinazione della grid search ha prodotto un risultato valido")
+
+        import pandas as pd
+
+        save_table(pd.DataFrame(records), results_paths.grid_search / "grid_results", formats=("csv",))
+        save_json(best_hp, results_paths.grid_search / "best_hyperparams.json")
+        save_json(
+            {
+                "n_combinations_evaluated": len(grid),
+                "n_combinations_successful": len(records),
+                "elapsed_seconds": elapsed,
+                "mean_seconds_per_combination": elapsed / len(grid) if grid else None,
+            },
+            results_paths.grid_search / "execution_times.json",
+        )
+
+        logger.info("Grid search completata. Migliori iperparametri: %s (val_mse=%.6g)", best_hp, best_val_mse)
+        return best_hp
+    except Exception:
+        logger.exception("Grid search fallita per architettura '%s'", arch_name)
+        raise
