@@ -183,12 +183,13 @@ def run_train_test(
         total_healthy["dataset"] = "healthy"
         total_healthy["damage_parameter"] = np.nan
         per_feature_healthy["dataset"] = "healthy"
+        per_feature_healthy["damage_parameter"] = np.nan
 
         all_totals = [total_healthy]
         all_per_feature = [per_feature_healthy]
         predictions = {"healthy": recon_healthy}
         inference_times = {"healthy": t_healthy}
-        correlations: dict[str, dict[str, dict[str, float]]] = {}
+        correlations: dict[str, dict[str, Any]] = {}
 
         for damage_type, damage_data in data.damage.items():
             recon, t = run_inference(model, damage_data, device, batch_size=batch_size)
@@ -198,15 +199,28 @@ def run_train_test(
             total_df["dataset"] = damage_type
             total_df["damage_parameter"] = damage_parameter
             per_feature_df["dataset"] = damage_type
+            per_feature_df["damage_parameter"] = damage_parameter
 
             all_totals.append(total_df)
             all_per_feature.append(per_feature_df)
             predictions[damage_type] = recon
             inference_times[damage_type] = t
 
+            n_features = damage_data.shape[-1]
             correlations[damage_type] = {
-                metric: compute_damage_correlations(total_df[metric].to_numpy(), damage_parameter)
-                for metric in ("mse", "mae", "rmse")
+                "total": {
+                    metric: compute_damage_correlations(total_df[metric].to_numpy(), damage_parameter)
+                    for metric in ("mse", "mae", "rmse")
+                },
+                "per_feature": {
+                    metric: {
+                        f"f{feature_idx}": compute_damage_correlations(
+                            per_feature_df[f"{metric}_f{feature_idx}"].to_numpy(), damage_parameter
+                        )
+                        for feature_idx in range(n_features)
+                    }
+                    for metric in ("mse", "mae", "rmse")
+                },
             }
 
         errors_df = pd.concat(all_totals, ignore_index=True)

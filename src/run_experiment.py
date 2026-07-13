@@ -79,7 +79,7 @@ def run_experiment(
             architecture, best_hp, preprocessed, results_paths, epochs=final_epochs, resume=resume_training, seed=seed
         )
 
-        export_all_results(preprocessed, train_test_results, results_paths)
+        export_all_results(preprocessed, train_test_results, results_paths, seed=seed)
 
         logger.info("=== Experiment completed: architecture=%s dataset=%s ===", architecture, data_folder)
         return {"results_paths": results_paths, "best_hyperparams": best_hp, "train_test_results": train_test_results}
