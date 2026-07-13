@@ -95,6 +95,8 @@ OPTIMIZATION_DEFAULTS: dict[str, int | float] = {
     "grid_resolution": 3,  # points per hyperparameter in the narrowed grid search
     "grid_max_combinations": 200,  # cap on the cartesian product, otherwise it explodes (e.g. 3^10)
     "seed": 0,
+    "n_jobs_hpo": 1,  # parallel Optuna trials (threads); >1 reduces exact seed-reproducibility
+    "n_jobs_gs": 1,  # parallel grid search combinations (threads); >1 reduces exact seed-reproducibility
 }
 
 DAMAGE_BIN_EDGES: np.ndarray = np.round(np.arange(0.0, 1.01, 0.1), 2)  # 10 bins: [0-0.1) ... [0.9-1.0]

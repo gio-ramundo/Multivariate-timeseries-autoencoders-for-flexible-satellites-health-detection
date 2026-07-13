@@ -10,7 +10,9 @@ not continuous sampling as in the Bayesian step).
 from __future__ import annotations
 
 import itertools
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 import numpy as np
@@ -36,7 +38,7 @@ def _grid_values_for_range(rng: HyperparamRange, resolution: int) -> list[Any]:
 
 
 def build_grid(
-    narrow_ranges: dict[str, HyperparamRange], resolution: int, max_combinations: int, seed: int = 0
+    narrow_ranges: dict[str, HyperparamRange], resolution: int, max_combinations: int, results_paths: ResultsPaths, seed: int = 0
 ) -> list[dict[str, Any]]:
     names = list(narrow_ranges.keys())
     value_lists = [_grid_values_for_range(narrow_ranges[name], resolution) for name in names]
@@ -46,11 +48,68 @@ def build_grid(
     if not full_grid:
         raise RuntimeError("The built grid is empty: check the input narrowed ranges")
 
+    logger = get_logger("grid_search", results_paths.logs / "grid_search.log")
+    logger.info("Grid size: %d", len(full_grid))
+
     if len(full_grid) > max_combinations:
         rng_np = np.random.default_rng(seed)
         idx = rng_np.choice(len(full_grid), size=max_combinations, replace=False)
         return [full_grid[i] for i in sorted(idx)]
     return full_grid
+
+
+def _evaluate_combination(
+    i: int,
+    hp: dict[str, Any],
+    arch_name: str,
+    input_len: int,
+    n_features: int,
+    train_array: np.ndarray,
+    val_tensor: torch.Tensor,
+    device: torch.device,
+    epochs: int,
+    seed: int,
+    total: int,
+    logger,
+) -> dict[str, Any] | None:
+    try:
+        torch.manual_seed(seed + i)
+        model = build_model(arch_name, hp, input_len, n_features).to(device)
+        optimizer = torch.optim.Adam(model.parameters(), lr=hp["learning_rate"], weight_decay=hp["weight_decay"])
+        loss_fn = nn.MSELoss()
+
+        train_loader = DataLoader(
+            TensorDataset(torch.from_numpy(train_array).float()), batch_size=hp["batch_size"], shuffle=True
+        )
+
+        combo_start = time.time()
+        model.train()
+        for _ in range(epochs):
+            for (batch,) in train_loader:
+                batch = batch.to(device)
+                optimizer.zero_grad()
+                recon = model(batch)
+                loss = loss_fn(recon, batch)
+                loss.backward()
+                optimizer.step()
+
+        model.eval()
+        with torch.no_grad():
+            val_mse = loss_fn(model(val_tensor), val_tensor).item()
+        combo_elapsed = time.time() - combo_start
+
+        if not np.isfinite(val_mse):
+            raise ValueError(f"val_mse is not finite: {val_mse}")
+
+        return {**hp, "val_mse": val_mse, "n_parameters": count_parameters(model), "seconds": combo_elapsed}
+    except (ValueError, RuntimeError) as exc:
+        logger.warning("Combination %d/%d discarded: %s", i + 1, total, exc)
+        return None
+    except Exception:
+        logger.exception("Combination %d/%d failed due to an unexpected error", i + 1, total)
+        return None
+    finally:
+        logger.info("Grid search progress: %d/%d combinations done", i + 1, total)
 
 
 def run_grid_search(
@@ -62,6 +121,7 @@ def run_grid_search(
     resolution: int,
     max_combinations: int,
     seed: int = 0,
+    n_jobs: int = 1,
 ) -> dict[str, Any]:
     logger = get_logger("grid_search", results_paths.logs / "grid_search.log")
 
@@ -69,61 +129,45 @@ def run_grid_search(
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info("Device selected for the grid search: %s", device)
 
+        if n_jobs > 1:
+            logger.warning(
+                "n_jobs=%d: combinations run in parallel threads. torch.manual_seed is process-global, "
+                "so exact per-seed reproducibility is not guaranteed with n_jobs > 1.",
+                n_jobs,
+            )
+
         input_len = data.train.shape[1]
         n_features = data.train.shape[2]
 
-        grid = build_grid(narrow_ranges, resolution, max_combinations, seed)
+        grid = build_grid(narrow_ranges, resolution, max_combinations, results_paths, seed)
         logger.info("Grid search: %d combinations to evaluate", len(grid))
 
         val_tensor = torch.from_numpy(data.val).float().to(device)
-        loss_fn = nn.MSELoss()
 
         records: list[dict[str, Any]] = []
         best_hp: dict[str, Any] | None = None
         best_val_mse = float("inf")
+        best_lock = threading.Lock()
         start_time = time.time()
 
-        for i, hp in enumerate(grid):
-            try:
-                torch.manual_seed(seed + i)
-                model = build_model(arch_name, hp, input_len, n_features).to(device)
-                optimizer = torch.optim.Adam(model.parameters(), lr=hp["learning_rate"], weight_decay=hp["weight_decay"])
-
-                train_loader = DataLoader(
-                    TensorDataset(torch.from_numpy(data.train).float()), batch_size=hp["batch_size"], shuffle=True
-                )
-
-                combo_start = time.time()
-                model.train()
-                for _ in range(epochs):
-                    for (batch,) in train_loader:
-                        batch = batch.to(device)
-                        optimizer.zero_grad()
-                        recon = model(batch)
-                        loss = loss_fn(recon, batch)
-                        loss.backward()
-                        optimizer.step()
-
-                model.eval()
-                with torch.no_grad():
-                    val_mse = loss_fn(model(val_tensor), val_tensor).item()
-                combo_elapsed = time.time() - combo_start
-
-                if not np.isfinite(val_mse):
-                    raise ValueError(f"val_mse is not finite: {val_mse}")
-
-                records.append({**hp, "val_mse": val_mse, "n_parameters": count_parameters(model), "seconds": combo_elapsed})
-
-                if val_mse < best_val_mse:
-                    best_val_mse = val_mse
-                    best_hp = hp
-                    logger.info("New best at combination %d/%d: val_mse=%.6g", i + 1, len(grid), val_mse)
-            except (ValueError, RuntimeError) as exc:
-                logger.warning("Combination %d/%d discarded: %s", i + 1, len(grid), exc)
-            except Exception:
-                logger.exception("Combination %d/%d failed due to an unexpected error", i + 1, len(grid))
-            finally:
-                logger.info("Grid search progress: %d/%d combinations done", i + 1, len(grid))
+        with ThreadPoolExecutor(max_workers=n_jobs) as executor:
+            futures = {
+                executor.submit(
+                    _evaluate_combination, i, hp, arch_name, input_len, n_features, data.train, val_tensor, device, epochs, seed, len(grid), logger
+                ): (i, hp)
+                for i, hp in enumerate(grid)
+            }
+            for future in as_completed(futures):
+                i, hp = futures[future]
+                result = future.result()
+                if result is None:
+                    continue
+                records.append(result)
+                with best_lock:
+                    if result["val_mse"] < best_val_mse:
+                        best_val_mse = result["val_mse"]
+                        best_hp = hp
+                        logger.info("New best at combination %d/%d: val_mse=%.6g", i + 1, len(grid), best_val_mse)
 
         elapsed = time.time() - start_time
 

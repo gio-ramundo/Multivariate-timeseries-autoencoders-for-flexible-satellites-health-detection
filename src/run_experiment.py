@@ -32,6 +32,8 @@ def run_experiment(
     grid_max_combinations: int = OPTIMIZATION_DEFAULTS["grid_max_combinations"],
     final_epochs: int = TRAINING_DEFAULTS["final_epochs"],
     seed: int = OPTIMIZATION_DEFAULTS["seed"],
+    n_jobs_hpo: int = OPTIMIZATION_DEFAULTS["n_jobs_hpo"],
+    n_jobs_gs: int = OPTIMIZATION_DEFAULTS["n_jobs_gs"],
     force_preprocessing: bool = False,
     resume_training: bool = True,
 ) -> dict[str, Any]:
@@ -58,6 +60,7 @@ def run_experiment(
             hpo_epochs=hpo_epochs,
             tolerance=parsimony_tolerance,
             seed=seed,
+            n_jobs=n_jobs_hpo,
         )
 
         best_hp = run_grid_search(
@@ -69,6 +72,7 @@ def run_experiment(
             resolution=grid_resolution,
             max_combinations=grid_max_combinations,
             seed=seed,
+            n_jobs=n_jobs_gs,
         )
 
         train_test_results = run_train_test(
@@ -99,6 +103,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--grid-max-combinations", type=int, default=OPTIMIZATION_DEFAULTS["grid_max_combinations"])
     parser.add_argument("--final-epochs", type=int, default=TRAINING_DEFAULTS["final_epochs"])
     parser.add_argument("--seed", type=int, default=OPTIMIZATION_DEFAULTS["seed"])
+    parser.add_argument("--n-jobs-hpo", type=int, default=OPTIMIZATION_DEFAULTS["n_jobs_hpo"], help="Parallel HPO trials (threads)")
+    parser.add_argument("--n-jobs-gs", type=int, default=OPTIMIZATION_DEFAULTS["n_jobs_gs"], help="Parallel grid search combinations (threads)")
     parser.add_argument("--force-preprocessing", action="store_true")
     parser.add_argument("--no-resume-training", dest="resume_training", action="store_false")
     return parser

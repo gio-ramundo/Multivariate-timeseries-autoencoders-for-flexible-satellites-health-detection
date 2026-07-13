@@ -70,6 +70,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--grid-max-combinations", type=int, default=OPTIMIZATION_DEFAULTS["grid_max_combinations"])
     parser.add_argument("--final-epochs", type=int, default=TRAINING_DEFAULTS["final_epochs"])
     parser.add_argument("--seed", type=int, default=OPTIMIZATION_DEFAULTS["seed"])
+    parser.add_argument("--n-jobs-hpo", type=int, default=OPTIMIZATION_DEFAULTS["n_jobs_hpo"], help="Parallel HPO trials (threads)")
+    parser.add_argument("--n-jobs-gs", type=int, default=OPTIMIZATION_DEFAULTS["n_jobs_gs"], help="Parallel grid search combinations (threads)")
     parser.add_argument("--force-preprocessing", action="store_true")
     parser.add_argument("--no-resume-training", dest="resume_training", action="store_false")
     return parser

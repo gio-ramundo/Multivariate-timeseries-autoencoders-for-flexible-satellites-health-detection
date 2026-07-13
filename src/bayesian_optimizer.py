@@ -149,11 +149,19 @@ def run_bayesian_optimization(
     hpo_epochs: int,
     tolerance: float,
     seed: int = 0,
+    n_jobs: int = 1,
 ) -> dict[str, HyperparamRange]:
     logger = get_logger("bayesian_optimizer", results_paths.logs / "bayesian_optimizer.log")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logger.info("Device selected for HPO: %s", device)
+
+    if n_jobs > 1:
+        logger.warning(
+            "n_jobs=%d: trials run in parallel threads. torch.manual_seed is process-global, "
+            "so exact per-seed reproducibility is not guaranteed with n_jobs > 1.",
+            n_jobs,
+        )
 
     input_len = data.train.shape[1]
     n_features = data.train.shape[2]
@@ -181,7 +189,7 @@ def run_bayesian_optimization(
 
         start_time = time.time()
         if remaining > 0:
-            study.optimize(objective, n_trials=remaining, catch=())
+            study.optimize(objective, n_trials=remaining, n_jobs=n_jobs, catch=())
         elapsed = time.time() - start_time
 
         selected = select_parsimonious_trials(study, top_n=top_n, tolerance=tolerance)

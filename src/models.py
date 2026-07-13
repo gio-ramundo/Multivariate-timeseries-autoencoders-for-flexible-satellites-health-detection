@@ -4,7 +4,7 @@ ReLU, vector or reduced-sequence bottleneck).
 The decoder is the exact mirror of the encoder: the same layer sequence read in
 reverse, with ConvTranspose1d using an `output_padding` computed to bring the
 temporal length back exactly to the input length (15000 steps), whatever the
-kernel_size/stride/padding combination chosen by the trial.
+kernel_size/stride combination chosen by the trial.
 """
 
 from __future__ import annotations
@@ -20,23 +20,23 @@ REQUIRED_MODEL_KEYS = ("hidden_units", "latent_dim", "dropout")
 REQUIRED_CONV_LAYER_KEYS = ("n_filters", "kernel_size", "stride")
 
 
-def conv1d_output_length(length_in: int, kernel_size: int, stride: int, padding: int) -> int:
-    return (length_in + 2 * padding - kernel_size) // stride + 1
+def conv1d_output_length(length_in: int, kernel_size: int, stride: int) -> int:
+    return (length_in - kernel_size) // stride + 1
 
 
 def conv_transpose1d_output_padding(
-    length_in: int, target_length_out: int, kernel_size: int, stride: int, padding: int
+    length_in: int, target_length_out: int, kernel_size: int, stride: int
 ) -> int:
     """Compute the ConvTranspose1d output_padding needed to obtain exactly
     `target_length_out` starting from `length_in`, with the same kernel/stride/padding
     used by the Conv1d being inverted."""
-    base = (length_in - 1) * stride - 2 * padding + kernel_size
+    base = (length_in - 1) * stride + kernel_size
     output_padding = target_length_out - base
     if output_padding < 0 or output_padding >= stride:
         raise ValueError(
             f"Hyperparameter combination not exactly invertible "
             f"(length_in={length_in}, target={target_length_out}, kernel={kernel_size}, "
-            f"stride={stride}, padding={padding} -> output_padding={output_padding})"
+            f"stride={stride}, padding={CONV_PADDING} -> output_padding={output_padding})"
         )
     return output_padding
 
@@ -61,7 +61,7 @@ class Encoder(nn.Module):
                 conv_layers.append(nn.ReLU())
             conv_layers.append(nn.Dropout(hp["dropout"]))
 
-            new_len = conv1d_output_length(lengths[-1], kernel_size_i, stride_i, CONV_PADDING)
+            new_len = conv1d_output_length(lengths[-1], kernel_size_i, stride_i)
             if new_len < 1:
                 raise ValueError(
                     f"The sequence collapses after conv layer {i}: resulting length {new_len}. "
@@ -114,7 +114,7 @@ class Decoder(nn.Module):
             in_channels = hp[conv_layer_key("n_filters", i)]
             out_channels = n_features if i == 0 else hp[conv_layer_key("n_filters", i - 1)]
 
-            output_padding = conv_transpose1d_output_padding(length_in, target_len, kernel_size_i, stride_i, CONV_PADDING)
+            output_padding = conv_transpose1d_output_padding(length_in, target_len, kernel_size_i, stride_i)
             transpose_layers.append(
                 nn.ConvTranspose1d(
                     in_channels,
