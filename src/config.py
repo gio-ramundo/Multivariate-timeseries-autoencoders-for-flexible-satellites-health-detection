@@ -1,4 +1,4 @@
-"""Architetture, spazio degli iperparametri, default di training, metriche e bin di danno."""
+"""Architectures, hyperparameter search space, training defaults, metrics and damage bins."""
 
 from __future__ import annotations
 
@@ -13,9 +13,9 @@ LatentMode = Literal["vector", "sequence"]
 @dataclass(frozen=True)
 class ArchitectureSpec:
     name: str
-    n_conv_layers: int  # 1 per le prime due famiglie, 2 per la terza
-    use_activation: bool  # ReLU dopo ogni layer convoluzionale
-    latent_mode: LatentMode  # "vector": bottleneck a vettore singolo; "sequence": bottleneck a sequenza ridotta
+    n_conv_layers: int  # 1 for the first two families, 2 for the third
+    use_activation: bool  # ReLU after each convolutional layer
+    latent_mode: LatentMode  # "vector": single-vector bottleneck; "sequence": reduced-sequence bottleneck
 
 
 ARCHITECTURES: dict[str, ArchitectureSpec] = {
@@ -38,15 +38,15 @@ class HyperparamRange:
 
 
 def get_search_space(arch_name: str) -> dict[str, HyperparamRange]:
-    """Spazio di ricerca degli iperparametri (comune a tutte le architetture).
+    """Hyperparameter search space (shared across all architectures).
 
-    NOTA: 'padding' non e' incluso qui perche' il suo range dipende dal
-    kernel_size campionato nello stesso trial (0 <= padding <= kernel_size // 2);
-    viene campionato direttamente in bayesian_optimizer.build_objective dopo
-    aver campionato kernel_size.
+    NOTE: 'padding' is not included here because its range depends on the
+    kernel_size sampled in the same trial (0 <= padding <= kernel_size // 2);
+    it is sampled directly in bayesian_optimizer.build_objective after
+    kernel_size has been sampled.
     """
     if arch_name not in ARCHITECTURES:
-        raise ValueError(f"Architettura sconosciuta: {arch_name}. Disponibili: {list(ARCHITECTURES)}")
+        raise ValueError(f"Unknown architecture: {arch_name}. Available: {list(ARCHITECTURES)}")
 
     return {
         "n_filters": HyperparamRange("categorical", choices=[8, 16, 32, 64, 128]),
@@ -61,7 +61,7 @@ def get_search_space(arch_name: str) -> dict[str, HyperparamRange]:
     }
 
 
-# Valori iniziali: l'utente li affinera' manualmente in un secondo momento.
+# Initial values: the user will fine-tune these manually later.
 TRAINING_DEFAULTS: dict[str, int | str] = {
     "hpo_epochs": 20,
     "grid_epochs": 20,
@@ -69,17 +69,17 @@ TRAINING_DEFAULTS: dict[str, int | str] = {
     "optimizer": "adam",
 }
 
-# Default di orchestrazione dell'ottimizzazione (sovrascrivibili da CLI in run_experiment).
+# Optimization orchestration defaults (overridable from the CLI in run_experiment).
 OPTIMIZATION_DEFAULTS: dict[str, int | float] = {
     "n_hpo_trials": 50,
     "top_n": 10,
-    "parsimony_tolerance": 0.05,  # tolleranza relativa sul val_mse per la selezione parsimoniosa
-    "grid_resolution": 3,  # punti per iperparametro nella grid search ristretta
-    "grid_max_combinations": 200,  # cap sul prodotto cartesiano, altrimenti esplode (es. 3^10)
+    "parsimony_tolerance": 0.05,  # relative tolerance on val_mse for parsimonious selection
+    "grid_resolution": 3,  # points per hyperparameter in the narrowed grid search
+    "grid_max_combinations": 200,  # cap on the cartesian product, otherwise it explodes (e.g. 3^10)
     "seed": 0,
 }
 
-DAMAGE_BIN_EDGES: np.ndarray = np.round(np.arange(0.0, 1.01, 0.1), 2)  # 10 bin: [0-0.1) ... [0.9-1.0]
+DAMAGE_BIN_EDGES: np.ndarray = np.round(np.arange(0.0, 1.01, 0.1), 2)  # 10 bins: [0-0.1) ... [0.9-1.0]
 
 ERROR_METRICS: list[str] = [
     "mse",

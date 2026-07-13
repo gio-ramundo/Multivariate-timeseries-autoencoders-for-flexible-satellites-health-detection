@@ -1,10 +1,10 @@
-"""Autoencoder convoluzionale + LSTM, in 6 varianti (1 o 2 layer conv, con o senza
-ReLU, bottleneck a vettore o a sequenza ridotta).
+"""Convolutional + LSTM autoencoder, in 6 variants (1 or 2 conv layers, with or without
+ReLU, vector or reduced-sequence bottleneck).
 
-Il decoder e' l'esatto speculare dell'encoder: stessa sequenza di layer letta al
-contrario, con ConvTranspose1d che usa un `output_padding` calcolato per
-riportare la lunghezza temporale esattamente a quella di input (15000 step),
-qualunque sia la combinazione di kernel_size/stride/padding scelta dal trial.
+The decoder is the exact mirror of the encoder: the same layer sequence read in
+reverse, with ConvTranspose1d using an `output_padding` computed to bring the
+temporal length back exactly to the input length (15000 steps), whatever the
+kernel_size/stride/padding combination chosen by the trial.
 """
 
 from __future__ import annotations
@@ -26,14 +26,14 @@ def conv1d_output_length(length_in: int, kernel_size: int, stride: int, padding:
 def conv_transpose1d_output_padding(
     length_in: int, target_length_out: int, kernel_size: int, stride: int, padding: int
 ) -> int:
-    """Calcola l'output_padding di ConvTranspose1d necessario per ottenere esattamente
-    `target_length_out` a partire da `length_in`, con gli stessi kernel/stride/padding
-    usati dal Conv1d che si vuole invertire."""
+    """Compute the ConvTranspose1d output_padding needed to obtain exactly
+    `target_length_out` starting from `length_in`, with the same kernel/stride/padding
+    used by the Conv1d being inverted."""
     base = (length_in - 1) * stride - 2 * padding + kernel_size
     output_padding = target_length_out - base
     if output_padding < 0 or output_padding >= stride:
         raise ValueError(
-            f"Combinazione di iperparametri non invertibile esattamente "
+            f"Hyperparameter combination not exactly invertible "
             f"(length_in={length_in}, target={target_length_out}, kernel={kernel_size}, "
             f"stride={stride}, padding={padding} -> output_padding={output_padding})"
         )
@@ -59,13 +59,13 @@ class Encoder(nn.Module):
             new_len = conv1d_output_length(lengths[-1], hp["kernel_size"], hp["stride"], hp["padding"])
             if new_len < 1:
                 raise ValueError(
-                    f"La sequenza si annulla dopo il layer conv {i}: lunghezza risultante {new_len}. "
-                    "Ridurre kernel_size/stride o aumentare la lunghezza di input."
+                    f"The sequence collapses after conv layer {i}: resulting length {new_len}. "
+                    "Reduce kernel_size/stride or increase the input length."
                 )
             lengths.append(new_len)
 
         self.conv = nn.Sequential(*conv_layers)
-        self.lengths = lengths  # [input_len, len_dopo_conv1, (len_dopo_conv2)]
+        self.lengths = lengths  # [input_len, len_after_conv1, (len_after_conv2)]
 
         self.lstm = nn.LSTM(input_size=hp["n_filters"], hidden_size=hp["hidden_units"], num_layers=1, batch_first=True)
         self.dropout = nn.Dropout(hp["dropout"])
@@ -139,7 +139,7 @@ class Autoencoder(nn.Module):
         super().__init__()
         missing = [k for k in REQUIRED_MODEL_KEYS if k not in hp]
         if missing:
-            raise ValueError(f"Iperparametri mancanti per costruire il modello: {missing}")
+            raise ValueError(f"Missing hyperparameters to build the model: {missing}")
 
         self.encoder = Encoder(spec, hp, input_len, n_features)
         self.decoder = Decoder(spec, hp, self.encoder.lengths, n_features)
@@ -151,7 +151,7 @@ class Autoencoder(nn.Module):
 
 def build_model(arch_name: str, hp: dict[str, Any], input_len: int, n_features: int) -> Autoencoder:
     if arch_name not in ARCHITECTURES:
-        raise ValueError(f"Architettura sconosciuta: {arch_name}. Disponibili: {list(ARCHITECTURES)}")
+        raise ValueError(f"Unknown architecture: {arch_name}. Available: {list(ARCHITECTURES)}")
     spec = ARCHITECTURES[arch_name]
     return Autoencoder(spec, hp, input_len, n_features)
 

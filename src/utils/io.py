@@ -1,4 +1,4 @@
-"""Punto unico di accesso a disco: dataset .mat v7.3, path, checkpoint, tabelle, figure."""
+"""Single point of access to disk: .mat v7.3 datasets, paths, checkpoints, tables, figures."""
 
 from __future__ import annotations
 
@@ -37,18 +37,18 @@ class ResultsPaths:
 
 
 def resolve_data_paths(data_root: Path, case_name: str) -> DatasetPaths:
-    """Costruisce e valida i path dei file .mat per una cartella dataset.
+    """Build and validate the .mat file paths for a dataset folder.
 
-    Si aspetta ``data_root/case_name/healthy.mat`` e un file
-    ``damage_<tipo>.mat`` per ciascun tipo in :data:`DAMAGE_TYPES`.
+    Expects ``data_root/case_name/healthy.mat`` and a
+    ``damage_<type>.mat`` file for each type in :data:`DAMAGE_TYPES`.
     """
     case_dir = data_root / case_name
     if not case_dir.is_dir():
-        raise FileNotFoundError(f"Cartella dataset non trovata: {case_dir}")
+        raise FileNotFoundError(f"Dataset folder not found: {case_dir}")
 
     healthy_path = case_dir / "healthy.mat"
     if not healthy_path.is_file():
-        raise FileNotFoundError(f"File healthy non trovato: {healthy_path}")
+        raise FileNotFoundError(f"Healthy file not found: {healthy_path}")
 
     damage_paths: dict[str, Path] = {}
     missing = []
@@ -60,14 +60,14 @@ def resolve_data_paths(data_root: Path, case_name: str) -> DatasetPaths:
 
     if missing:
         raise FileNotFoundError(
-            f"File damage mancanti in {case_dir}: {', '.join(missing)}"
+            f"Missing damage files in {case_dir}: {', '.join(missing)}"
         )
 
     return DatasetPaths(healthy=healthy_path, damage=damage_paths)
 
 
 def resolve_results_paths(results_root: Path, case_name: str, arch_name: str) -> ResultsPaths:
-    """Costruisce (e crea su disco) l'albero di sottocartelle dei risultati."""
+    """Build (and create on disk) the results subfolder tree."""
     root = results_root / case_name / arch_name
     paths = ResultsPaths(
         root=root,
@@ -95,28 +95,28 @@ def resolve_results_paths(results_root: Path, case_name: str, arch_name: str) ->
 
 
 def _to_matlab_order(dataset: h5py.Dataset) -> np.ndarray:
-    """Le variabili MATLAB salvate in v7.3 (HDF5) sono lette da h5py con gli assi
-    invertiti rispetto all'ordine logico MATLAB (colonna-maggiore vs riga-maggiore).
-    Qui si inverte l'ordine degli assi per ripristinare la forma logica originale.
+    """MATLAB variables saved in v7.3 (HDF5) are read by h5py with axes
+    reversed relative to MATLAB's logical order (column-major vs row-major).
+    Here the axis order is reversed to restore the original logical shape.
     """
     array = np.asarray(dataset)
     return np.transpose(array, axes=tuple(reversed(range(array.ndim))))
 
 
 def load_mat_v73(path: Path, keys: list[str]) -> dict[str, np.ndarray]:
-    """Carica le variabili richieste da un file .mat v7.3 (formato HDF5)."""
+    """Load the requested variables from a .mat v7.3 file (HDF5 format)."""
     if not path.is_file():
-        raise FileNotFoundError(f"File .mat non trovato: {path}")
+        raise FileNotFoundError(f".mat file not found: {path}")
 
     result: dict[str, np.ndarray] = {}
     try:
         with h5py.File(path, "r") as f:
             for key in keys:
                 if key not in f:
-                    raise KeyError(f"Variabile '{key}' non presente in {path} (chiavi disponibili: {list(f.keys())})")
+                    raise KeyError(f"Variable '{key}' not present in {path} (available keys: {list(f.keys())})")
                 result[key] = _to_matlab_order(f[key])
     except OSError as exc:
-        raise OSError(f"Errore durante l'apertura/lettura di {path}: {exc}") from exc
+        raise OSError(f"Error while opening/reading {path}: {exc}") from exc
 
     return result
 
@@ -140,7 +140,7 @@ def load_checkpoint(path: Path, model: Any, optimizer: Any | None = None, map_lo
     import torch
 
     if not path.is_file():
-        raise FileNotFoundError(f"Checkpoint non trovato: {path}")
+        raise FileNotFoundError(f"Checkpoint not found: {path}")
 
     checkpoint = torch.load(path, map_location=map_location)
     model.load_state_dict(checkpoint["model_state_dict"])
@@ -157,7 +157,7 @@ def save_json(obj: Any, path: Path) -> None:
 
 def load_json(path: Path) -> Any:
     if not path.is_file():
-        raise FileNotFoundError(f"File JSON non trovato: {path}")
+        raise FileNotFoundError(f"JSON file not found: {path}")
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -171,7 +171,7 @@ def _json_default(o: Any) -> Any:
         return o.tolist()
     if isinstance(o, Path):
         return str(o)
-    raise TypeError(f"Oggetto non serializzabile in JSON: {type(o)}")
+    raise TypeError(f"Object not JSON serializable: {type(o)}")
 
 
 def save_table(df: pd.DataFrame, path_no_suffix: Path, formats: tuple[str, ...] = ("csv",)) -> None:
@@ -182,7 +182,7 @@ def save_table(df: pd.DataFrame, path_no_suffix: Path, formats: tuple[str, ...] 
         elif fmt == "xlsx":
             df.to_excel(path_no_suffix.with_suffix(".xlsx"), index=True)
         else:
-            raise ValueError(f"Formato tabella non supportato: {fmt}")
+            raise ValueError(f"Unsupported table format: {fmt}")
 
 
 def save_figure(fig: Any, path: Path) -> None:

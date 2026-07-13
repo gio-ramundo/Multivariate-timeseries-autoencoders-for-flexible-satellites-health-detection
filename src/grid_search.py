@@ -1,10 +1,10 @@
-"""Grid search sui range ristretti prodotti dall'ottimizzazione bayesiana.
+"""Grid search over the narrowed ranges produced by the Bayesian optimization.
 
-Un prodotto cartesiano esaustivo su ~10 iperparametri esplode rapidamente
-(anche con solo 3 punti per iperparametro si arriva a 3^10 ~= 59000 combinazioni).
-Per questo la griglia completa viene eventualmente sotto-campionata in modo
-casuale (seedato) fino a `max_combinations`, mantenendo comunque solo punti
-sulla griglia (non e' un sampling continuo come nel bayesiano).
+An exhaustive cartesian product over ~10 hyperparameters explodes quickly
+(even with only 3 points per hyperparameter it reaches 3^10 ~= 59000 combinations).
+Therefore the full grid is, if necessary, randomly (seeded) subsampled down
+to `max_combinations`, while still keeping only points on the grid (this is
+not continuous sampling as in the Bayesian step).
 """
 
 from __future__ import annotations
@@ -45,11 +45,11 @@ def build_grid(
     for combo in itertools.product(*value_lists):
         hp = dict(zip(names, combo))
         if hp["padding"] > hp["kernel_size"] // 2:
-            continue  # combinazione non valida, scartata
+            continue  # invalid combination, discarded
         full_grid.append(hp)
 
     if not full_grid:
-        raise RuntimeError("La griglia costruita e' vuota: controllare i range ristretti in input")
+        raise RuntimeError("The built grid is empty: check the input narrowed ranges")
 
     if len(full_grid) > max_combinations:
         rng_np = np.random.default_rng(seed)
@@ -72,13 +72,13 @@ def run_grid_search(
 
     try:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        logger.info("Device selezionato per la grid search: %s", device)
+        logger.info("Device selected for the grid search: %s", device)
 
         input_len = data.train.shape[1]
         n_features = data.train.shape[2]
 
         grid = build_grid(narrow_ranges, resolution, max_combinations, seed)
-        logger.info("Grid search: %d combinazioni da valutare", len(grid))
+        logger.info("Grid search: %d combinations to evaluate", len(grid))
 
         val_tensor = torch.from_numpy(data.val).float().to(device)
         loss_fn = nn.MSELoss()
@@ -115,23 +115,23 @@ def run_grid_search(
                 combo_elapsed = time.time() - combo_start
 
                 if not np.isfinite(val_mse):
-                    raise ValueError(f"val_mse non finito: {val_mse}")
+                    raise ValueError(f"val_mse is not finite: {val_mse}")
 
                 records.append({**hp, "val_mse": val_mse, "n_parameters": count_parameters(model), "seconds": combo_elapsed})
 
                 if val_mse < best_val_mse:
                     best_val_mse = val_mse
                     best_hp = hp
-                    logger.info("Nuovo migliore alla combinazione %d/%d: val_mse=%.6g", i + 1, len(grid), val_mse)
+                    logger.info("New best at combination %d/%d: val_mse=%.6g", i + 1, len(grid), val_mse)
             except (ValueError, RuntimeError) as exc:
-                logger.warning("Combinazione %d/%d scartata: %s", i + 1, len(grid), exc)
+                logger.warning("Combination %d/%d discarded: %s", i + 1, len(grid), exc)
             except Exception:
-                logger.exception("Combinazione %d/%d fallita per errore inatteso", i + 1, len(grid))
+                logger.exception("Combination %d/%d failed due to an unexpected error", i + 1, len(grid))
 
         elapsed = time.time() - start_time
 
         if best_hp is None:
-            raise RuntimeError("Nessuna combinazione della grid search ha prodotto un risultato valido")
+            raise RuntimeError("No grid search combination produced a valid result")
 
         import pandas as pd
 
@@ -147,8 +147,8 @@ def run_grid_search(
             results_paths.grid_search / "execution_times.json",
         )
 
-        logger.info("Grid search completata. Migliori iperparametri: %s (val_mse=%.6g)", best_hp, best_val_mse)
+        logger.info("Grid search completed. Best hyperparameters: %s (val_mse=%.6g)", best_hp, best_val_mse)
         return best_hp
     except Exception:
-        logger.exception("Grid search fallita per architettura '%s'", arch_name)
+        logger.exception("Grid search failed for architecture '%s'", arch_name)
         raise

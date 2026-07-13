@@ -1,5 +1,5 @@
-"""Esegue l'intera pipeline (preprocessing -> HPO bayesiano -> grid search ->
-training/test finale -> esportazione risultati) per UNA coppia (architettura, dataset).
+"""Runs the full pipeline (preprocessing -> Bayesian HPO -> grid search ->
+final training/test -> results export) for ONE (architecture, dataset) pair.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ def run_experiment(
     resume_training: bool = True,
 ) -> dict[str, Any]:
     if architecture not in ARCHITECTURES:
-        raise ValueError(f"Architettura sconosciuta: {architecture}. Disponibili: {list(ARCHITECTURES)}")
+        raise ValueError(f"Unknown architecture: {architecture}. Available: {list(ARCHITECTURES)}")
 
     logger = get_logger("run_experiment")
     dataset_paths = resolve_data_paths(Path(data_root), data_folder)
@@ -45,7 +45,7 @@ def run_experiment(
     logger = get_logger(f"run_experiment.{data_folder}.{architecture}", results_paths.logs / "run_experiment.log")
 
     try:
-        logger.info("=== Avvio esperimento: architettura=%s dataset=%s ===", architecture, data_folder)
+        logger.info("=== Starting experiment: architecture=%s dataset=%s ===", architecture, data_folder)
 
         preprocessed = run_preprocessing(dataset_paths, results_paths, seed=seed, force=force_preprocessing)
 
@@ -77,15 +77,15 @@ def run_experiment(
 
         export_all_results(preprocessed, train_test_results, results_paths)
 
-        logger.info("=== Esperimento completato: architettura=%s dataset=%s ===", architecture, data_folder)
+        logger.info("=== Experiment completed: architecture=%s dataset=%s ===", architecture, data_folder)
         return {"results_paths": results_paths, "best_hyperparams": best_hp, "train_test_results": train_test_results}
     except Exception:
-        logger.exception("Esperimento fallito: architettura=%s dataset=%s", architecture, data_folder)
+        logger.exception("Experiment failed: architecture=%s dataset=%s", architecture, data_folder)
         raise
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Esegue la pipeline completa per una coppia (architettura, dataset).")
+    parser = argparse.ArgumentParser(description="Runs the full pipeline for one (architecture, dataset) pair.")
     parser.add_argument("--architecture", required=True, choices=list(ARCHITECTURES))
     parser.add_argument("--data-folder", required=True)
     parser.add_argument("--data-root", default="data")

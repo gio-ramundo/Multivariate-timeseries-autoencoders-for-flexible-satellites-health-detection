@@ -1,4 +1,4 @@
-"""Logger condiviso da tutti gli script della pipeline."""
+"""Shared logger used by all pipeline scripts."""
 
 from __future__ import annotations
 
@@ -10,9 +10,9 @@ _DATEFMT = "%Y-%m-%d %H:%M:%S"
 
 
 def get_logger(name: str, log_file: Path | None = None, level: int = logging.INFO) -> logging.Logger:
-    """Crea (o recupera) un logger con handler su console e, se specificato, su file.
+    """Create (or retrieve) a logger with a console handler and, if specified, a file handler.
 
-    Chiamate ripetute con lo stesso `name` non duplicano gli handler.
+    Repeated calls with the same `name` do not duplicate handlers.
     """
     logger = logging.getLogger(name)
     logger.setLevel(level)

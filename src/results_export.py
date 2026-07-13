@@ -1,4 +1,4 @@
-"""Esportazione di grafici (PDF) e tabelle (CSV/XLSX) a partire dai risultati di train_test."""
+"""Export of plots (PDF) and tables (CSV/XLSX) from the train_test results."""
 
 from __future__ import annotations
 
@@ -26,9 +26,9 @@ def plot_training_curves(curve: pd.DataFrame, out_path: Path) -> None:
     fig, ax = plt.subplots(figsize=(6, 4))
     ax.plot(curve["epoch"], curve["train_loss"], label="train")
     ax.plot(curve["epoch"], curve["val_loss"], label="validation")
-    ax.set_xlabel("epoca")
+    ax.set_xlabel("epoch")
     ax.set_ylabel("MSE")
-    ax.set_title("Curve di training")
+    ax.set_title("Training curves")
     ax.legend()
     save_figure(fig, out_path)
     plt.close(fig)
@@ -41,7 +41,7 @@ def plot_error_boxplot(errors_df: pd.DataFrame, out_path: Path, metric: str = "m
     fig, ax = plt.subplots(figsize=(6, 4))
     ax.boxplot(values, tick_labels=groups)
     ax.set_ylabel(metric.upper())
-    ax.set_title(f"Distribuzione errore ({metric.upper()}) per tipo di danno")
+    ax.set_title(f"Error distribution ({metric.upper()}) by damage type")
     save_figure(fig, out_path)
     plt.close(fig)
 
@@ -58,9 +58,9 @@ def plot_error_vs_damage_parameter(errors_df: pd.DataFrame, out_path: Path, metr
             xs = np.linspace(0, 1, 50)
             ax.plot(xs, np.polyval(coeffs, xs), linestyle="--")
 
-    ax.set_xlabel("parametro di danno")
+    ax.set_xlabel("damage parameter")
     ax.set_ylabel(metric.upper())
-    ax.set_title(f"{metric.upper()} vs parametro di danno")
+    ax.set_title(f"{metric.upper()} vs damage parameter")
     ax.legend()
     save_figure(fig, out_path)
     plt.close(fig)
@@ -84,7 +84,7 @@ def plot_roc_curve(errors_df: pd.DataFrame, out_path: Path, metric: str = "mse")
     ax.plot([0, 1], [0, 1], linestyle=":", color="gray")
     ax.set_xlabel("FPR")
     ax.set_ylabel("TPR")
-    ax.set_title(f"ROC (healthy vs danno, {metric.upper()})")
+    ax.set_title(f"ROC (healthy vs damage, {metric.upper()})")
     ax.legend()
     save_figure(fig, out_path)
     plt.close(fig)
@@ -97,13 +97,13 @@ def plot_sample_reconstructions(x: np.ndarray, x_hat: np.ndarray, out_path: Path
     axes = np.atleast_1d(axes)
 
     for i in range(n):
-        axes[i].plot(x[i, :, feature_idx], label="originale")
-        axes[i].plot(x_hat[i, :, feature_idx], label="ricostruito", linestyle="--")
-        axes[i].set_ylabel(f"istanza {i}")
+        axes[i].plot(x[i, :, feature_idx], label="original")
+        axes[i].plot(x_hat[i, :, feature_idx], label="reconstructed", linestyle="--")
+        axes[i].set_ylabel(f"instance {i}")
 
     axes[0].legend()
     axes[-1].set_xlabel("timestep")
-    fig.suptitle(f"Ricostruzione campione (feature indice {feature_idx})")
+    fig.suptitle(f"Sample reconstruction (feature index {feature_idx})")
     save_figure(fig, out_path)
     plt.close(fig)
 
@@ -148,7 +148,7 @@ def export_all_results(data: PreprocessedData, train_test_results: dict[str, Any
                 data.damage[damage_type], predictions[damage_type], results_paths.figures / f"sample_reconstructions_{damage_type}.pdf"
             )
 
-        logger.info("Esportazione risultati completata in %s", results_paths.figures)
+        logger.info("Results export completed in %s", results_paths.figures)
     except Exception:
-        logger.exception("Esportazione risultati fallita")
+        logger.exception("Results export failed")
         raise

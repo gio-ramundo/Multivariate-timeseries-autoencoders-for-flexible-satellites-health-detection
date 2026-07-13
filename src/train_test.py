@@ -1,5 +1,6 @@
-"""Training finale con checkpoint/resume, inferenza su healthy e sui 3 danni,
-calcolo errori (totali e per feature) e correlazioni con il livello di danno.
+"""Final training with checkpoint/resume, inference on healthy and the 3 damage
+datasets, error computation (total and per-feature) and correlations with the
+damage level.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ def train_final_model(
     logger = get_logger("train_test", results_paths.logs / "train_test.log")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    logger.info("Device selezionato per il training finale: %s", device)
+    logger.info("Device selected for final training: %s", device)
 
     input_len = data.train.shape[1]
     n_features = data.train.shape[2]
@@ -56,9 +57,9 @@ def train_final_model(
             start_epoch = last_epoch + 1
             if curve_path.is_file():
                 curve_records = pd.read_csv(curve_path).to_dict("records")
-            logger.info("Training ripreso dall'epoca %d (best_val_loss=%.6g)", start_epoch, best_val_loss)
+            logger.info("Training resumed from epoch %d (best_val_loss=%.6g)", start_epoch, best_val_loss)
         except Exception:
-            logger.exception("Checkpoint non ripristinabile, riparto da zero")
+            logger.exception("Checkpoint could not be restored, starting from scratch")
             start_epoch, best_val_loss, curve_records = 0, float("inf"), []
 
     train_loader = DataLoader(TensorDataset(torch.from_numpy(data.train).float()), batch_size=hp["batch_size"], shuffle=True)
@@ -83,7 +84,7 @@ def train_final_model(
 
         train_loss = float(np.mean(batch_losses))
         curve_records.append({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss})
-        logger.info("Epoca %d/%d - train_loss=%.6g val_loss=%.6g", epoch + 1, epochs, train_loss, val_loss)
+        logger.info("Epoch %d/%d - train_loss=%.6g val_loss=%.6g", epoch + 1, epochs, train_loss, val_loss)
 
         save_checkpoint(checkpoint_path, model, optimizer, epoch, min(best_val_loss, val_loss))
         if val_loss < best_val_loss:
@@ -97,7 +98,7 @@ def train_final_model(
     if best_model_path.is_file():
         load_checkpoint(best_model_path, model, optimizer, map_location=str(device))
     else:
-        logger.warning("Nessun best_model salvato (0 epoche eseguite?): uso i pesi correnti")
+        logger.warning("No best_model saved (0 epochs run?): using current weights")
 
     save_json(
         {"training_seconds": training_elapsed, "epochs_run": max(0, epochs - start_epoch), "best_val_loss": best_val_loss},
@@ -126,7 +127,7 @@ def run_inference(model: nn.Module, x: np.ndarray, device: torch.device, batch_s
 
 
 def compute_errors(x: np.ndarray, x_hat: np.ndarray) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Errori per istanza: totali (mse/mae/rmse) e per feature."""
+    """Per-instance errors: total (mse/mae/rmse) and per-feature."""
     diff = x - x_hat
     se = diff**2
     ae = np.abs(diff)
@@ -220,7 +221,7 @@ def run_train_test(
             results_paths.evaluation / "predictions.npz", **{f"pred_{k}": v for k, v in predictions.items()}
         )
 
-        logger.info("Train/test completato per '%s'", arch_name)
+        logger.info("Train/test completed for '%s'", arch_name)
         return {
             "model": model,
             "training_curve": curve,
@@ -231,5 +232,5 @@ def run_train_test(
             "predictions": predictions,
         }
     except Exception:
-        logger.exception("Train/test fallito per architettura '%s'", arch_name)
+        logger.exception("Train/test failed for architecture '%s'", arch_name)
         raise

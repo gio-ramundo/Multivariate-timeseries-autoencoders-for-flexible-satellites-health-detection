@@ -1,13 +1,14 @@
-"""Ottimizzazione bayesiana (Optuna, multi-obiettivo) degli iperparametri.
+"""Bayesian (multi-objective Optuna) hyperparameter optimization.
 
-Si minimizzano contemporaneamente l'errore di ricostruzione (MSE su validation
-healthy) e il numero di parametri del modello. Usare la sola MSE come
-obiettivo spingerebbe l'ottimizzatore verso gli iperparametri di massima
-capacita' del range (piu' filtri/hidden units/latent_dim = errore piu' basso,
-quasi sempre), producendo un autoencoder che tende all'identita' e quindi
-inutile per il detection. La selezione finale dei trial da cui derivare i
-range ristretti applica una regola di parsimonia: tra i trial con MSE entro
-`tolerance` dal migliore, si scelgono i `top_n` a minore complessita'.
+The reconstruction error (MSE on healthy validation) and the number of model
+parameters are minimized simultaneously. Using MSE alone as the objective
+would push the optimizer toward the hyperparameters with maximum capacity in
+the range (more filters/hidden units/latent_dim = lower error, almost
+always), producing an autoencoder that tends toward the identity function and
+is therefore useless for detection. The final selection of trials from which
+the narrowed ranges are derived applies a parsimony rule: among the trials
+with MSE within `tolerance` of the best one, the `top_n` with the lowest
+complexity are chosen.
 """
 
 from __future__ import annotations
@@ -39,7 +40,7 @@ def _suggest_hyperparams(trial: optuna.Trial, search_space: dict[str, Hyperparam
             hp[name] = trial.suggest_int(name, int(rng.low), int(rng.high), log=rng.log)
         else:
             hp[name] = trial.suggest_float(name, rng.low, rng.high, log=rng.log)
-    # padding dipende dal kernel_size campionato in questo stesso trial.
+    # padding depends on the kernel_size sampled in this same trial.
     hp["padding"] = trial.suggest_int("padding", 0, hp["kernel_size"] // 2)
     return hp
 
@@ -87,14 +88,14 @@ def build_objective(
                 val_mse = loss_fn(val_recon, val_tensor).item()
 
             if not np.isfinite(val_mse):
-                raise ValueError(f"val_mse non finito: {val_mse}")
+                raise ValueError(f"val_mse is not finite: {val_mse}")
 
             return val_mse, float(count_parameters(model))
         except (ValueError, RuntimeError) as exc:
-            logger.warning("Trial %d scartato (combinazione non valida): %s", trial.number, exc)
+            logger.warning("Trial %d discarded (invalid combination): %s", trial.number, exc)
             raise optuna.TrialPruned() from exc
         except Exception:
-            logger.exception("Trial %d fallito per errore inatteso", trial.number)
+            logger.exception("Trial %d failed due to an unexpected error", trial.number)
             raise optuna.TrialPruned()
 
     return objective
@@ -103,16 +104,16 @@ def build_objective(
 def select_parsimonious_trials(
     study: optuna.Study, top_n: int, tolerance: float = 0.05
 ) -> list[optuna.trial.FrozenTrial]:
-    """Tra i trial completati entro `tolerance` relativa dal miglior val_mse,
-    seleziona i `top_n` a minor numero di parametri (regola di parsimonia)."""
+    """Among trials completed within a relative `tolerance` of the best val_mse,
+    select the `top_n` with the fewest parameters (parsimony rule)."""
     completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE and t.values is not None]
     if not completed:
-        raise RuntimeError("Nessun trial completato: impossibile derivare i range ristretti")
+        raise RuntimeError("No completed trials: cannot derive the narrowed ranges")
 
     best_mse = min(t.values[0] for t in completed)
     threshold = best_mse * (1.0 + tolerance)
     candidates = [t for t in completed if t.values[0] <= threshold]
-    candidates.sort(key=lambda t: t.values[1])  # complessita' crescente
+    candidates.sort(key=lambda t: t.values[1])  # increasing complexity
     return candidates[:top_n]
 
 
@@ -156,7 +157,7 @@ def run_bayesian_optimization(
     logger = get_logger("bayesian_optimizer", results_paths.logs / "bayesian_optimizer.log")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    logger.info("Device selezionato per l'HPO: %s", device)
+    logger.info("Device selected for HPO: %s", device)
 
     input_len = data.train.shape[1]
     n_features = data.train.shape[2]
@@ -175,7 +176,7 @@ def run_bayesian_optimization(
 
         n_already_done = len([t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE])
         remaining = max(0, n_trials - n_already_done)
-        logger.info("Trial completati in precedenza: %d, da eseguire ora: %d", n_already_done, remaining)
+        logger.info("Trials previously completed: %d, to run now: %d", n_already_done, remaining)
 
         objective = build_objective(arch_name, data, input_len, n_features, hpo_epochs, device, logger, seed=seed)
 
@@ -185,7 +186,7 @@ def run_bayesian_optimization(
         elapsed = time.time() - start_time
 
         selected = select_parsimonious_trials(study, top_n=top_n, tolerance=tolerance)
-        logger.info("Selezionati %d trial parsimoniosi su %d completati", len(selected), n_already_done + remaining)
+        logger.info("Selected %d parsimonious trials out of %d completed", len(selected), n_already_done + remaining)
 
         search_space = get_search_space(arch_name)
         narrowed_ranges = compute_narrow_ranges(selected, search_space)
@@ -210,7 +211,7 @@ def run_bayesian_optimization(
 
         return narrowed_ranges
     except Exception:
-        logger.exception("Ottimizzazione bayesiana fallita per architettura '%s'", arch_name)
+        logger.exception("Bayesian optimization failed for architecture '%s'", arch_name)
         raise
 
 
@@ -227,17 +228,17 @@ def _plot_pareto_front(study: optuna.Study, selected: list[optuna.trial.FrozenTr
         fig, ax = plt.subplots(figsize=(6, 5))
         xs_all = [t.values[0] for t in completed]
         ys_all = [t.values[1] for t in completed]
-        ax.scatter(xs_all, ys_all, c="tab:gray", alpha=0.5, label="tutti i trial")
+        ax.scatter(xs_all, ys_all, c="tab:gray", alpha=0.5, label="all trials")
 
         xs_sel = [t.values[0] for t in completed if t.number in selected_numbers]
         ys_sel = [t.values[1] for t in completed if t.number in selected_numbers]
-        ax.scatter(xs_sel, ys_sel, c="tab:red", label="selezionati (parsimoniosi)")
+        ax.scatter(xs_sel, ys_sel, c="tab:red", label="selected (parsimonious)")
 
         ax.set_xlabel("val MSE")
-        ax.set_ylabel("n. parametri")
-        ax.set_title("Fronte errore/complessita'")
+        ax.set_ylabel("n. parameters")
+        ax.set_title("Error/complexity front")
         ax.legend()
         fig.savefig(out_path, format="pdf", bbox_inches="tight")
         plt.close(fig)
     except Exception:
-        get_logger("bayesian_optimizer").exception("Impossibile generare il grafico del fronte di Pareto")
+        get_logger("bayesian_optimizer").exception("Could not generate the Pareto front plot")
