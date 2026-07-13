@@ -18,7 +18,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from .config import HyperparamRange
+from .config import ARCHITECTURES, HyperparamRange, conv_layer_key
 from .models import build_model, count_parameters
 from .preprocessing import PreprocessedData
 from .utils.io import ResultsPaths, save_json, save_table
@@ -36,15 +36,20 @@ def _grid_values_for_range(rng: HyperparamRange, resolution: int) -> list[Any]:
 
 
 def build_grid(
-    narrow_ranges: dict[str, HyperparamRange], resolution: int, max_combinations: int, seed: int = 0
+    narrow_ranges: dict[str, HyperparamRange], resolution: int, max_combinations: int, n_conv_layers: int, seed: int = 0
 ) -> list[dict[str, Any]]:
     names = list(narrow_ranges.keys())
     value_lists = [_grid_values_for_range(narrow_ranges[name], resolution) for name in names]
 
+    layer_key_pairs = [
+        (conv_layer_key("padding", layer_idx), conv_layer_key("kernel_size", layer_idx))
+        for layer_idx in range(n_conv_layers)
+    ]
+
     full_grid = []
     for combo in itertools.product(*value_lists):
         hp = dict(zip(names, combo))
-        if hp["padding"] > hp["kernel_size"] // 2:
+        if any(hp[padding_key] > hp[kernel_key] // 2 for padding_key, kernel_key in layer_key_pairs):
             continue  # invalid combination, discarded
         full_grid.append(hp)
 
@@ -77,7 +82,7 @@ def run_grid_search(
         input_len = data.train.shape[1]
         n_features = data.train.shape[2]
 
-        grid = build_grid(narrow_ranges, resolution, max_combinations, seed)
+        grid = build_grid(narrow_ranges, resolution, max_combinations, ARCHITECTURES[arch_name].n_conv_layers, seed)
         logger.info("Grid search: %d combinations to evaluate", len(grid))
 
         val_tensor = torch.from_numpy(data.val).float().to(device)

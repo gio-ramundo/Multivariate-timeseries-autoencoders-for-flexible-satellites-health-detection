@@ -37,21 +37,31 @@ class HyperparamRange:
     log: bool = False
 
 
-def get_search_space(arch_name: str) -> dict[str, HyperparamRange]:
-    """Hyperparameter search space (shared across all architectures).
+def conv_layer_key(name: str, layer_idx: int) -> str:
+    """Per-layer hyperparameter key. layer_idx is 0-indexed, the key suffix is 1-indexed:
+    conv_layer_key("n_filters", 0) -> "n_filters_1" (first conv layer)."""
+    return f"{name}_{layer_idx + 1}"
 
-    NOTE: 'padding' is not included here because its range depends on the
-    kernel_size sampled in the same trial (0 <= padding <= kernel_size // 2);
-    it is sampled directly in bayesian_optimizer.build_objective after
-    kernel_size has been sampled.
+
+def get_search_space(arch_name: str) -> dict[str, HyperparamRange]:
+    """Hyperparameter search space for the given architecture.
+
+    n_filters/kernel_size/stride are sampled independently for each
+    convolutional layer (keys suffixed by 1-indexed layer number, see
+    :func:`conv_layer_key`), so the two conv layers of a 2-layer architecture
+    are not forced to share the same values.
+
+    NOTE: 'padding_<i>' is not included here because its range depends on the
+    kernel_size_<i> sampled for that same layer in the same trial
+    (0 <= padding_<i> <= kernel_size_<i> // 2); it is sampled directly in
+    bayesian_optimizer._suggest_hyperparams after kernel_size_<i> has been sampled.
     """
     if arch_name not in ARCHITECTURES:
         raise ValueError(f"Unknown architecture: {arch_name}. Available: {list(ARCHITECTURES)}")
 
-    return {
-        "n_filters": HyperparamRange("categorical", choices=[8, 16, 32, 64, 128]),
-        "kernel_size": HyperparamRange("categorical", choices=[3, 5, 7, 9, 11]),
-        "stride": HyperparamRange("categorical", choices=[1, 2, 4, 8]),
+    spec = ARCHITECTURES[arch_name]
+
+    space: dict[str, HyperparamRange] = {
         "hidden_units": HyperparamRange("categorical", choices=[16, 32, 64, 128, 256]),
         "latent_dim": HyperparamRange("categorical", choices=[4, 8, 16, 32, 64]),
         "dropout": HyperparamRange("float", low=0.0, high=0.5),
@@ -59,6 +69,11 @@ def get_search_space(arch_name: str) -> dict[str, HyperparamRange]:
         "learning_rate": HyperparamRange("float", low=1e-4, high=1e-2, log=True),
         "batch_size": HyperparamRange("categorical", choices=[8, 16, 32, 64]),
     }
+    for layer_idx in range(spec.n_conv_layers):
+        space[conv_layer_key("n_filters", layer_idx)] = HyperparamRange("categorical", choices=[8, 16, 32, 64, 128])
+        space[conv_layer_key("kernel_size", layer_idx)] = HyperparamRange("categorical", choices=[3, 5, 7, 9, 11])
+        space[conv_layer_key("stride", layer_idx)] = HyperparamRange("categorical", choices=[1, 2, 4, 8])
+    return space
 
 
 # Initial values: the user will fine-tune these manually later.

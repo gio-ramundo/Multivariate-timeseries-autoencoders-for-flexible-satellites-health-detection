@@ -14,9 +14,10 @@ from typing import Any
 import torch
 from torch import nn
 
-from .config import ArchitectureSpec, ARCHITECTURES
+from .config import ArchitectureSpec, ARCHITECTURES, conv_layer_key
 
-REQUIRED_MODEL_KEYS = ("n_filters", "kernel_size", "stride", "padding", "hidden_units", "latent_dim", "dropout")
+REQUIRED_MODEL_KEYS = ("hidden_units", "latent_dim", "dropout")
+REQUIRED_CONV_LAYER_KEYS = ("n_filters", "kernel_size", "stride", "padding")
 
 
 def conv1d_output_length(length_in: int, kernel_size: int, stride: int, padding: int) -> int:
@@ -48,15 +49,20 @@ class Encoder(nn.Module):
         conv_layers: list[nn.Module] = []
         lengths = [input_len]
         for i in range(spec.n_conv_layers):
-            in_channels = n_features if i == 0 else hp["n_filters"]
+            n_filters_i = hp[conv_layer_key("n_filters", i)]
+            kernel_size_i = hp[conv_layer_key("kernel_size", i)]
+            stride_i = hp[conv_layer_key("stride", i)]
+            padding_i = hp[conv_layer_key("padding", i)]
+
+            in_channels = n_features if i == 0 else hp[conv_layer_key("n_filters", i - 1)]
             conv_layers.append(
-                nn.Conv1d(in_channels, hp["n_filters"], kernel_size=hp["kernel_size"], stride=hp["stride"], padding=hp["padding"])
+                nn.Conv1d(in_channels, n_filters_i, kernel_size=kernel_size_i, stride=stride_i, padding=padding_i)
             )
             if spec.use_activation:
                 conv_layers.append(nn.ReLU())
             conv_layers.append(nn.Dropout(hp["dropout"]))
 
-            new_len = conv1d_output_length(lengths[-1], hp["kernel_size"], hp["stride"], hp["padding"])
+            new_len = conv1d_output_length(lengths[-1], kernel_size_i, stride_i, padding_i)
             if new_len < 1:
                 raise ValueError(
                     f"The sequence collapses after conv layer {i}: resulting length {new_len}. "
@@ -67,7 +73,8 @@ class Encoder(nn.Module):
         self.conv = nn.Sequential(*conv_layers)
         self.lengths = lengths  # [input_len, len_after_conv1, (len_after_conv2)]
 
-        self.lstm = nn.LSTM(input_size=hp["n_filters"], hidden_size=hp["hidden_units"], num_layers=1, batch_first=True)
+        last_n_filters = hp[conv_layer_key("n_filters", spec.n_conv_layers - 1)]
+        self.lstm = nn.LSTM(input_size=last_n_filters, hidden_size=hp["hidden_units"], num_layers=1, batch_first=True)
         self.dropout = nn.Dropout(hp["dropout"])
         self.latent_proj = nn.Linear(hp["hidden_units"], hp["latent_dim"])
 
@@ -94,24 +101,29 @@ class Decoder(nn.Module):
         self.latent_expand = nn.Linear(hp["latent_dim"], hp["hidden_units"])
         self.lstm = nn.LSTM(input_size=hp["hidden_units"], hidden_size=hp["hidden_units"], num_layers=1, batch_first=True)
         self.dropout = nn.Dropout(hp["dropout"])
-        self.pre_conv_proj = nn.Linear(hp["hidden_units"], hp["n_filters"])
+
+        n_layers = spec.n_conv_layers
+        last_n_filters = hp[conv_layer_key("n_filters", n_layers - 1)]
+        self.pre_conv_proj = nn.Linear(hp["hidden_units"], last_n_filters)
 
         transpose_layers: list[nn.Module] = []
-        n_layers = spec.n_conv_layers
         for i in reversed(range(n_layers)):
             length_in = encoder_lengths[i + 1]
             target_len = encoder_lengths[i]
-            out_channels = n_features if i == 0 else hp["n_filters"]
-            output_padding = conv_transpose1d_output_padding(
-                length_in, target_len, hp["kernel_size"], hp["stride"], hp["padding"]
-            )
+            kernel_size_i = hp[conv_layer_key("kernel_size", i)]
+            stride_i = hp[conv_layer_key("stride", i)]
+            padding_i = hp[conv_layer_key("padding", i)]
+            in_channels = hp[conv_layer_key("n_filters", i)]
+            out_channels = n_features if i == 0 else hp[conv_layer_key("n_filters", i - 1)]
+
+            output_padding = conv_transpose1d_output_padding(length_in, target_len, kernel_size_i, stride_i, padding_i)
             transpose_layers.append(
                 nn.ConvTranspose1d(
-                    hp["n_filters"],
+                    in_channels,
                     out_channels,
-                    kernel_size=hp["kernel_size"],
-                    stride=hp["stride"],
-                    padding=hp["padding"],
+                    kernel_size=kernel_size_i,
+                    stride=stride_i,
+                    padding=padding_i,
                     output_padding=output_padding,
                 )
             )
@@ -138,6 +150,12 @@ class Autoencoder(nn.Module):
     def __init__(self, spec: ArchitectureSpec, hp: dict[str, Any], input_len: int, n_features: int) -> None:
         super().__init__()
         missing = [k for k in REQUIRED_MODEL_KEYS if k not in hp]
+        missing += [
+            conv_layer_key(name, i)
+            for i in range(spec.n_conv_layers)
+            for name in REQUIRED_CONV_LAYER_KEYS
+            if conv_layer_key(name, i) not in hp
+        ]
         if missing:
             raise ValueError(f"Missing hyperparameters to build the model: {missing}")
 

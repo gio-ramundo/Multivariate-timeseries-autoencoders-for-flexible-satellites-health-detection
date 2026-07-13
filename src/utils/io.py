@@ -40,7 +40,7 @@ def resolve_data_paths(data_root: Path, case_name: str) -> DatasetPaths:
     """Build and validate the .mat file paths for a dataset folder.
 
     Expects ``data_root/case_name/healthy.mat`` and a
-    ``damage_<type>.mat`` file for each type in :data:`DAMAGE_TYPES`.
+    ``<type>.mat`` file for each type in :data:`DAMAGE_TYPES`.
     """
     case_dir = data_root / case_name
     if not case_dir.is_dir():
@@ -53,7 +53,7 @@ def resolve_data_paths(data_root: Path, case_name: str) -> DatasetPaths:
     damage_paths: dict[str, Path] = {}
     missing = []
     for damage_type in DAMAGE_TYPES:
-        p = case_dir / f"damage_{damage_type}.mat"
+        p = case_dir / f"{damage_type}.mat"
         if not p.is_file():
             missing.append(p.name)
         damage_paths[damage_type] = p

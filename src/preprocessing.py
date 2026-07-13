@@ -15,8 +15,18 @@ import numpy as np
 from .utils.io import DatasetPaths, ResultsPaths, load_mat_v73
 from .utils.logging_utils import get_logger
 
-FEATURE_INDICES: list[int] = [0, 1, 2, 6, 7, 8, 9, 10, 11, 18, 19, 20]
+FEATURE_INDICES: list[int] = [3, 4, 5, 9, 10, 11, 17, 18, 19, 20, 21, 22, 23, 24, 25]
 SPLIT_RATIOS: tuple[float, float, float] = (0.70, 0.15, 0.15)
+
+# Object names inside the .mat files. The healthy file holds a single 3D
+# array; each damage file holds a 3D array plus a 1D damage-level array
+# named after the damage type itself (e.g. "stiffness", not "damage_parameter").
+HEALTHY_DATA_KEY = "dataset_healthy"
+
+
+def _damage_data_key(damage_type: str) -> str:
+    return f"dataset_{damage_type}"
+
 
 logger = get_logger(__name__)
 
@@ -42,6 +52,17 @@ class PreprocessedData:
     damage: dict[str, np.ndarray]
     damage_parameter: dict[str, np.ndarray]
     norm_stats: NormalizationStats
+
+
+def reorder_to_instance_first(data: np.ndarray) -> np.ndarray:
+    """Reorder a raw .mat array from MATLAB's logical layout
+    (timestep, features, samples) to the (samples, timestep, features)
+    convention used throughout the rest of the pipeline (models, splitting,
+    error computation all index the first axis as the instance/batch axis).
+    """
+    if data.ndim != 3:
+        raise ValueError(f"Expected a 3D array (timestep, features, samples), got ndim={data.ndim}")
+    return np.transpose(data, axes=(2, 0, 1))
 
 
 def select_features(data: np.ndarray) -> np.ndarray:
@@ -136,11 +157,11 @@ def run_preprocessing(
 
     try:
         logger.info("Loading healthy dataset from %s", dataset_paths.healthy)
-        healthy_raw = load_mat_v73(dataset_paths.healthy, ["data"])["data"]
+        healthy_raw = load_mat_v73(dataset_paths.healthy, [HEALTHY_DATA_KEY])[HEALTHY_DATA_KEY]
         if healthy_raw.ndim != 3:
-            raise ValueError(f"Healthy 'data' must have 3 dimensions, found {healthy_raw.ndim}")
+            raise ValueError(f"Healthy '{HEALTHY_DATA_KEY}' must have 3 dimensions, found {healthy_raw.ndim}")
 
-        healthy = select_features(healthy_raw)
+        healthy = select_features(reorder_to_instance_first(healthy_raw))
         n_instances = healthy.shape[0]
         logger.info("Healthy dataset: %d instances, %d timesteps, %d selected features", *healthy.shape)
 
@@ -157,9 +178,10 @@ def run_preprocessing(
         damage_parameter: dict[str, np.ndarray] = {}
         for damage_type, path in dataset_paths.damage.items():
             logger.info("Loading damage dataset '%s' from %s", damage_type, path)
-            raw = load_mat_v73(path, ["data", "damage_parameter"])
-            d_data = select_features(raw["data"])
-            d_param = _squeeze_damage_parameter(raw["damage_parameter"], d_data.shape[0])
+            data_key = _damage_data_key(damage_type)
+            raw = load_mat_v73(path, [data_key, damage_type])
+            d_data = select_features(reorder_to_instance_first(raw[data_key]))
+            d_param = _squeeze_damage_parameter(raw[damage_type], d_data.shape[0])
             damage[damage_type] = apply_normalization(d_data, stats)
             damage_parameter[damage_type] = d_param
             logger.info("Damage dataset '%s': %d instances", damage_type, d_data.shape[0])
