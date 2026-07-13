@@ -43,18 +43,21 @@ def conv_layer_key(name: str, layer_idx: int) -> str:
     return f"{name}_{layer_idx + 1}"
 
 
+# Padding is fixed to 0 (not searched) for every conv/deconv layer: the input
+# sequences are long (thousands of timesteps), so the boundary samples a small
+# padding would preserve are a negligible fraction of each instance, and fixing
+# it removes two dimensions per conv layer from the HPO search space.
+CONV_PADDING = 0
+
+
 def get_search_space(arch_name: str) -> dict[str, HyperparamRange]:
     """Hyperparameter search space for the given architecture.
 
     n_filters/kernel_size/stride are sampled independently for each
     convolutional layer (keys suffixed by 1-indexed layer number, see
     :func:`conv_layer_key`), so the two conv layers of a 2-layer architecture
-    are not forced to share the same values.
-
-    NOTE: 'padding_<i>' is not included here because its range depends on the
-    kernel_size_<i> sampled for that same layer in the same trial
-    (0 <= padding_<i> <= kernel_size_<i> // 2); it is sampled directly in
-    bayesian_optimizer._suggest_hyperparams after kernel_size_<i> has been sampled.
+    are not forced to share the same values. Padding is not part of the search
+    space at all: it is fixed to :data:`CONV_PADDING` for every layer.
     """
     if arch_name not in ARCHITECTURES:
         raise ValueError(f"Unknown architecture: {arch_name}. Available: {list(ARCHITECTURES)}")

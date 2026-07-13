@@ -24,14 +24,14 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from .config import ARCHITECTURES, HyperparamRange, conv_layer_key, get_search_space
+from .config import HyperparamRange, get_search_space
 from .models import build_model, count_parameters
 from .preprocessing import PreprocessedData
 from .utils.io import ResultsPaths, save_json, save_table
 from .utils.logging_utils import get_logger
 
 
-def _suggest_hyperparams(trial: optuna.Trial, search_space: dict[str, HyperparamRange], n_conv_layers: int) -> dict[str, Any]:
+def _suggest_hyperparams(trial: optuna.Trial, search_space: dict[str, HyperparamRange]) -> dict[str, Any]:
     hp: dict[str, Any] = {}
     for name, rng in search_space.items():
         if rng.kind == "categorical":
@@ -40,11 +40,6 @@ def _suggest_hyperparams(trial: optuna.Trial, search_space: dict[str, Hyperparam
             hp[name] = trial.suggest_int(name, int(rng.low), int(rng.high), log=rng.log)
         else:
             hp[name] = trial.suggest_float(name, rng.low, rng.high, log=rng.log)
-    # padding_<i> depends on the kernel_size_<i> sampled for that same layer in this trial.
-    for layer_idx in range(n_conv_layers):
-        kernel_key = conv_layer_key("kernel_size", layer_idx)
-        padding_key = conv_layer_key("padding", layer_idx)
-        hp[padding_key] = trial.suggest_int(padding_key, 0, hp[kernel_key] // 2)
     return hp
 
 
@@ -56,16 +51,16 @@ def build_objective(
     hpo_epochs: int,
     device: torch.device,
     logger,
+    total_trials: int,
     seed: int = 0,
 ):
     search_space = get_search_space(arch_name)
-    n_conv_layers = ARCHITECTURES[arch_name].n_conv_layers
     val_tensor = torch.from_numpy(data.val).float().to(device)
 
     def objective(trial: optuna.Trial) -> tuple[float, float]:
         try:
             torch.manual_seed(seed + trial.number)
-            hp = _suggest_hyperparams(trial, search_space, n_conv_layers)
+            hp = _suggest_hyperparams(trial, search_space)
             model = build_model(arch_name, hp, input_len, n_features).to(device)
             optimizer = torch.optim.Adam(model.parameters(), lr=hp["learning_rate"], weight_decay=hp["weight_decay"])
             loss_fn = nn.MSELoss()
@@ -101,6 +96,8 @@ def build_objective(
         except Exception:
             logger.exception("Trial %d failed due to an unexpected error", trial.number)
             raise optuna.TrialPruned()
+        finally:
+            logger.info("HPO progress: %d/%d trials done", trial.number + 1, total_trials)
 
     return objective
 
@@ -122,26 +119,16 @@ def select_parsimonious_trials(
 
 
 def compute_narrow_ranges(
-    trials: list[optuna.trial.FrozenTrial],
-    search_space: dict[str, HyperparamRange],
-    n_conv_layers: int,
-    margin: float = 0.1,
+    trials: list[optuna.trial.FrozenTrial], search_space: dict[str, HyperparamRange], margin: float = 0.1
 ) -> dict[str, HyperparamRange]:
-    padding_names = [conv_layer_key("padding", layer_idx) for layer_idx in range(n_conv_layers)]
-    param_names = list(search_space.keys()) + padding_names
     narrowed: dict[str, HyperparamRange] = {}
 
-    for name in param_names:
+    for name, base in search_space.items():
         values = [t.params[name] for t in trials]
-        base = search_space.get(name)
-        is_padding = name in padding_names
 
-        if is_padding or (base is not None and base.kind == "categorical"):
+        if base.kind == "categorical":
             uniques = sorted(set(values))
-            if is_padding:
-                narrowed[name] = HyperparamRange(kind="int", low=min(uniques), high=max(uniques))
-            else:
-                narrowed[name] = HyperparamRange(kind="categorical", choices=uniques)
+            narrowed[name] = HyperparamRange(kind="categorical", choices=uniques)
         else:
             lo, hi = float(min(values)), float(max(values))
             span = hi - lo
@@ -187,7 +174,10 @@ def run_bayesian_optimization(
         remaining = max(0, n_trials - n_already_done)
         logger.info("Trials previously completed: %d, to run now: %d", n_already_done, remaining)
 
-        objective = build_objective(arch_name, data, input_len, n_features, hpo_epochs, device, logger, seed=seed)
+        objective = build_objective(
+            arch_name, data, input_len, n_features, hpo_epochs, device, logger,
+            total_trials=n_already_done + remaining, seed=seed,
+        )
 
         start_time = time.time()
         if remaining > 0:
@@ -198,7 +188,7 @@ def run_bayesian_optimization(
         logger.info("Selected %d parsimonious trials out of %d completed", len(selected), n_already_done + remaining)
 
         search_space = get_search_space(arch_name)
-        narrowed_ranges = compute_narrow_ranges(selected, search_space, ARCHITECTURES[arch_name].n_conv_layers)
+        narrowed_ranges = compute_narrow_ranges(selected, search_space)
 
         save_json({k: asdict(v) for k, v in narrowed_ranges.items()}, results_paths.hpo / "narrowed_ranges.json")
 

@@ -14,10 +14,10 @@ from typing import Any
 import torch
 from torch import nn
 
-from .config import ArchitectureSpec, ARCHITECTURES, conv_layer_key
+from .config import ArchitectureSpec, ARCHITECTURES, CONV_PADDING, conv_layer_key
 
 REQUIRED_MODEL_KEYS = ("hidden_units", "latent_dim", "dropout")
-REQUIRED_CONV_LAYER_KEYS = ("n_filters", "kernel_size", "stride", "padding")
+REQUIRED_CONV_LAYER_KEYS = ("n_filters", "kernel_size", "stride")
 
 
 def conv1d_output_length(length_in: int, kernel_size: int, stride: int, padding: int) -> int:
@@ -52,17 +52,16 @@ class Encoder(nn.Module):
             n_filters_i = hp[conv_layer_key("n_filters", i)]
             kernel_size_i = hp[conv_layer_key("kernel_size", i)]
             stride_i = hp[conv_layer_key("stride", i)]
-            padding_i = hp[conv_layer_key("padding", i)]
 
             in_channels = n_features if i == 0 else hp[conv_layer_key("n_filters", i - 1)]
             conv_layers.append(
-                nn.Conv1d(in_channels, n_filters_i, kernel_size=kernel_size_i, stride=stride_i, padding=padding_i)
+                nn.Conv1d(in_channels, n_filters_i, kernel_size=kernel_size_i, stride=stride_i, padding=CONV_PADDING)
             )
             if spec.use_activation:
                 conv_layers.append(nn.ReLU())
             conv_layers.append(nn.Dropout(hp["dropout"]))
 
-            new_len = conv1d_output_length(lengths[-1], kernel_size_i, stride_i, padding_i)
+            new_len = conv1d_output_length(lengths[-1], kernel_size_i, stride_i, CONV_PADDING)
             if new_len < 1:
                 raise ValueError(
                     f"The sequence collapses after conv layer {i}: resulting length {new_len}. "
@@ -112,18 +111,17 @@ class Decoder(nn.Module):
             target_len = encoder_lengths[i]
             kernel_size_i = hp[conv_layer_key("kernel_size", i)]
             stride_i = hp[conv_layer_key("stride", i)]
-            padding_i = hp[conv_layer_key("padding", i)]
             in_channels = hp[conv_layer_key("n_filters", i)]
             out_channels = n_features if i == 0 else hp[conv_layer_key("n_filters", i - 1)]
 
-            output_padding = conv_transpose1d_output_padding(length_in, target_len, kernel_size_i, stride_i, padding_i)
+            output_padding = conv_transpose1d_output_padding(length_in, target_len, kernel_size_i, stride_i, CONV_PADDING)
             transpose_layers.append(
                 nn.ConvTranspose1d(
                     in_channels,
                     out_channels,
                     kernel_size=kernel_size_i,
                     stride=stride_i,
-                    padding=padding_i,
+                    padding=CONV_PADDING,
                     output_padding=output_padding,
                 )
             )
