@@ -81,19 +81,19 @@ def get_search_space(arch_name: str) -> dict[str, HyperparamRange]:
 
 # Initial values: the user will fine-tune these manually later.
 TRAINING_DEFAULTS: dict[str, int | str] = {
-    "hpo_epochs": 20,
-    "grid_epochs": 20,
-    "final_epochs": 50,
+    "hpo_epochs": 50,
+    "grid_epochs": 50,
+    "final_epochs": 100,
     "optimizer": "adam",
 }
 
 # Optimization orchestration defaults (overridable from the CLI in run_experiment).
 OPTIMIZATION_DEFAULTS: dict[str, int | float] = {
-    "n_hpo_trials": 50,
+    "n_hpo_trials": 150,
     "top_n": 10,
     "parsimony_tolerance": 0.05,  # relative tolerance on val_mse for parsimonious selection
     "grid_resolution": 3,  # points per hyperparameter in the narrowed grid search
-    "grid_max_combinations": 200,  # cap on the cartesian product, otherwise it explodes (e.g. 3^10)
+    "grid_max_combinations": 150,  # cap on the cartesian product, otherwise it explodes (e.g. 3^10)
     "seed": 0,
     "n_jobs_hpo": 1,  # parallel Optuna trials (threads); >1 reduces exact seed-reproducibility
     "n_jobs_gs": 1,  # parallel grid search combinations (threads); >1 reduces exact seed-reproducibility

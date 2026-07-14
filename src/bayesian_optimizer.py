@@ -13,6 +13,7 @@ complexity are chosen.
 
 from __future__ import annotations
 
+import gc
 import time
 from dataclasses import asdict
 from pathlib import Path
@@ -215,6 +216,11 @@ def run_bayesian_optimization(
         )
 
         _plot_pareto_front(study, selected, results_paths.hpo / "pareto_front.pdf")
+
+        if device.type == "cuda":
+            gc.collect()
+            torch.cuda.empty_cache()
+            logger.info("VRAM cache freed after HPO")
 
         return narrowed_ranges
     except Exception:

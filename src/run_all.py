@@ -7,8 +7,11 @@ and does not stop the other combinations.
 from __future__ import annotations
 
 import argparse
+import gc
 from pathlib import Path
 from typing import Any
+
+import torch
 
 from .config import ARCHITECTURES, OPTIMIZATION_DEFAULTS, TRAINING_DEFAULTS
 from .run_experiment import run_experiment
@@ -46,6 +49,11 @@ def run_all(
                 logger.exception("Combination failed: architecture=%s dataset=%s", architecture, data_folder)
                 summary.append({"architecture": architecture, "data_folder": data_folder, "status": "failed", "error": str(exc)})
                 continue
+            finally:
+                if torch.cuda.is_available():
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                    logger.info("VRAM cache freed after architecture=%s dataset=%s", architecture, data_folder)
 
     n_failed = sum(1 for s in summary if s["status"] == "failed")
     logger.info("run_all completed: %d/%d combinations succeeded", len(summary) - n_failed, len(summary))

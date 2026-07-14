@@ -9,6 +9,7 @@ not continuous sampling as in the Bayesian step).
 
 from __future__ import annotations
 
+import gc
 import itertools
 import threading
 import time
@@ -189,6 +190,12 @@ def run_grid_search(
         )
 
         logger.info("Grid search completed. Best hyperparameters: %s (val_mse=%.6g)", best_hp, best_val_mse)
+
+        if device.type == "cuda":
+            gc.collect()
+            torch.cuda.empty_cache()
+            logger.info("VRAM cache freed after grid search")
+
         return best_hp
     except Exception:
         logger.exception("Grid search failed for architecture '%s'", arch_name)
