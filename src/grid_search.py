@@ -73,6 +73,9 @@ def _evaluate_combination(
     total: int,
     logger,
 ) -> dict[str, Any] | None:
+    model = None
+    optimizer = None
+    train_loader = None
     try:
         torch.manual_seed(seed + i)
         model = build_model(arch_name, hp, input_len, n_features).to(device)
@@ -110,6 +113,10 @@ def _evaluate_combination(
         logger.exception("Combination %d/%d failed due to an unexpected error", i + 1, total)
         return None
     finally:
+        del model, optimizer, train_loader
+        if device.type == "cuda":
+            gc.collect()
+            torch.cuda.empty_cache()
         logger.info("Grid search progress: %d/%d combinations done", i + 1, total)
 
 

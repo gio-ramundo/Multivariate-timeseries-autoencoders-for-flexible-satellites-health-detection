@@ -59,6 +59,9 @@ def build_objective(
     val_tensor = torch.from_numpy(data.val).float().to(device)
 
     def objective(trial: optuna.Trial) -> tuple[float, float]:
+        model = None
+        optimizer = None
+        train_loader = None
         try:
             torch.manual_seed(seed + trial.number)
             hp = _suggest_hyperparams(trial, search_space)
@@ -98,6 +101,10 @@ def build_objective(
             logger.exception("Trial %d failed due to an unexpected error", trial.number)
             raise optuna.TrialPruned()
         finally:
+            del model, optimizer, train_loader
+            if device.type == "cuda":
+                gc.collect()
+                torch.cuda.empty_cache()
             logger.info("HPO progress: %d/%d trials done", trial.number + 1, total_trials)
 
     return objective
