@@ -15,6 +15,8 @@ from scipy.stats import kendalltau, pearsonr
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
+from .chunking import chunk_array, stitch_chunks
+from .config import CHUNK_OVERLAP_RATIO
 from .models import build_model
 from .preprocessing import PreprocessedData
 from .utils.io import ResultsPaths, load_checkpoint, save_checkpoint, save_json, save_table
@@ -126,6 +128,27 @@ def run_inference(model: nn.Module, x: np.ndarray, device: torch.device, batch_s
     return np.concatenate(outputs, axis=0), elapsed
 
 
+def run_chunked_inference(
+    model: nn.Module,
+    x: np.ndarray,
+    chunk_len: int,
+    device: torch.device,
+    batch_size: int = 32,
+    overlap_ratio: float = CHUNK_OVERLAP_RATIO,
+) -> tuple[np.ndarray, float]:
+    """Chunked counterpart of run_inference: splits each instance's full-length
+    series into overlapping windows sized for a chunk-trained model, runs
+    inference on all windows, and stitches the per-window reconstructions back
+    into full-length series (overlap-averaged), so the result is directly
+    comparable to a full-length model's output.
+    """
+    n_instances, series_len, _ = x.shape
+    chunks, starts = chunk_array(x, chunk_len, overlap_ratio)
+    chunk_preds, elapsed = run_inference(model, chunks, device, batch_size=batch_size)
+    x_hat = stitch_chunks(chunk_preds, starts, n_instances, series_len)
+    return x_hat, elapsed
+
+
 def compute_errors(x: np.ndarray, x_hat: np.ndarray) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Per-instance errors: total (mse/mae/rmse) and per-feature."""
     diff = x - x_hat
@@ -170,15 +193,25 @@ def run_train_test(
     epochs: int,
     resume: bool = True,
     seed: int = 0,
+    chunk_len: int | None = None,
+    chunk_overlap: float = CHUNK_OVERLAP_RATIO,
 ) -> dict[str, Any]:
     logger = get_logger("train_test", results_paths.logs / "train_test.log")
+
+    def infer(x: np.ndarray) -> tuple[np.ndarray, float]:
+        """Full-length or chunked inference depending on `chunk_len`, so the rest
+        of this function (error/correlation computation, export) always sees
+        full-length reconstructions regardless of how the model was trained."""
+        if chunk_len is None:
+            return run_inference(model, x, device, batch_size=batch_size)
+        return run_chunked_inference(model, x, chunk_len, device, batch_size=batch_size, overlap_ratio=chunk_overlap)
 
     try:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model, curve = train_final_model(arch_name, hp, data, results_paths, epochs, resume=resume, seed=seed)
 
         batch_size = hp["batch_size"]
-        recon_healthy, t_healthy = run_inference(model, data.test, device, batch_size=batch_size)
+        recon_healthy, t_healthy = infer(data.test)
         total_healthy, per_feature_healthy = compute_errors(data.test, recon_healthy)
         total_healthy["dataset"] = "healthy"
         total_healthy["damage_parameter"] = np.nan
@@ -192,7 +225,7 @@ def run_train_test(
         correlations: dict[str, dict[str, Any]] = {}
 
         for damage_type, damage_data in data.damage.items():
-            recon, t = run_inference(model, damage_data, device, batch_size=batch_size)
+            recon, t = infer(damage_data)
             total_df, per_feature_df = compute_errors(damage_data, recon)
             damage_parameter = data.damage_parameter[damage_type]
 

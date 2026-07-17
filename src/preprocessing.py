@@ -12,8 +12,10 @@ from pathlib import Path
 
 import numpy as np
 
+from .chunking import chunk_array
 from .utils.io import DatasetPaths, ResultsPaths, load_mat_v73
 from .utils.logging_utils import get_logger
+from .config import CHUNK_OVERLAP_RATIO
 
 FEATURE_INDICES: list[int] = [3, 4, 5, 9, 10, 11, 17, 18, 19, 20, 21, 22, 23, 24, 25]
 SPLIT_RATIOS: tuple[float, float, float] = (0.70, 0.15, 0.15)
@@ -210,3 +212,26 @@ def run_preprocessing(
     except Exception:
         logger.exception("Preprocessing failed for the dataset in %s", dataset_paths.healthy.parent)
         raise
+
+
+def chunk_preprocessed(
+    data: PreprocessedData, chunk_len: int, overlap_ratio: float = CHUNK_OVERLAP_RATIO
+) -> PreprocessedData:
+    """Builds the chunked variant of `data` used for chunked training: `train` and
+    `val` are split into overlapping windows of length `chunk_len` (the window axis
+    is flattened into the instance axis, so downstream code sees them as ordinary
+    (n_instances, chunk_len, n_features) arrays). `test`, `damage` and
+    `damage_parameter` are left at full length, since evaluation runs the model
+    per-window and stitches the reconstructions back before computing the same
+    statistics as the full-length pipeline.
+    """
+    train_chunks, _ = chunk_array(data.train, chunk_len, overlap_ratio)
+    val_chunks, _ = chunk_array(data.val, chunk_len, overlap_ratio)
+    return PreprocessedData(
+        train=train_chunks,
+        val=val_chunks,
+        test=data.test,
+        damage=data.damage,
+        damage_parameter=data.damage_parameter,
+        norm_stats=data.norm_stats,
+    )

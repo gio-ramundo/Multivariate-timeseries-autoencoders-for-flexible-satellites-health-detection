@@ -49,6 +49,8 @@ def conv_layer_key(name: str, layer_idx: int) -> str:
 # it removes two dimensions per conv layer from the HPO search space.
 CONV_PADDING = 0
 
+CHUNK_OVERLAP_RATIO = 0.20
+
 
 def get_search_space(arch_name: str) -> dict[str, HyperparamRange]:
     """Hyperparameter search space for the given architecture.
