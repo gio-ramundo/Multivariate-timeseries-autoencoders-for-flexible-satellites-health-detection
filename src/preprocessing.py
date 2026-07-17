@@ -25,6 +25,8 @@ HEALTHY_DATA_KEY = "dataset_healthy"
 
 
 def _damage_data_key(damage_type: str) -> str:
+    if damage_type == "gyroscope":
+        return "dataset_gyro"
     return f"dataset_{damage_type}"
 
 
@@ -162,6 +164,8 @@ def run_preprocessing(
             raise ValueError(f"Healthy '{HEALTHY_DATA_KEY}' must have 3 dimensions, found {healthy_raw.ndim}")
 
         healthy = select_features(reorder_to_instance_first(healthy_raw))
+        ## for test
+        #healthy = healthy[:, :200, :]
         n_instances = healthy.shape[0]
         logger.info("Healthy dataset: %d instances, %d timesteps, %d selected features", *healthy.shape)
 
@@ -181,6 +185,8 @@ def run_preprocessing(
             data_key = _damage_data_key(damage_type)
             raw = load_mat_v73(path, [data_key, damage_type])
             d_data = select_features(reorder_to_instance_first(raw[data_key]))
+            ## for test
+            #d_data = d_data[:, :200, :]
             d_param = _squeeze_damage_parameter(raw[damage_type], d_data.shape[0])
             damage[damage_type] = apply_normalization(d_data, stats)
             damage_parameter[damage_type] = d_param

@@ -19,11 +19,11 @@ class ArchitectureSpec:
 
 
 ARCHITECTURES: dict[str, ArchitectureSpec] = {
-    "conv_lstm_vec": ArchitectureSpec("conv_lstm_vec", n_conv_layers=1, use_activation=False, latent_mode="vector"),
+    #"conv_lstm_vec": ArchitectureSpec("conv_lstm_vec", n_conv_layers=1, use_activation=False, latent_mode="vector"),
     "conv_lstm_seq": ArchitectureSpec("conv_lstm_seq", n_conv_layers=1, use_activation=False, latent_mode="sequence"),
-    "conv_relu_lstm_vec": ArchitectureSpec("conv_relu_lstm_vec", n_conv_layers=1, use_activation=True, latent_mode="vector"),
+    #"conv_relu_lstm_vec": ArchitectureSpec("conv_relu_lstm_vec", n_conv_layers=1, use_activation=True, latent_mode="vector"),
     "conv_relu_lstm_seq": ArchitectureSpec("conv_relu_lstm_seq", n_conv_layers=1, use_activation=True, latent_mode="sequence"),
-    "conv2_relu_lstm_vec": ArchitectureSpec("conv2_relu_lstm_vec", n_conv_layers=2, use_activation=True, latent_mode="vector"),
+    #"conv2_relu_lstm_vec": ArchitectureSpec("conv2_relu_lstm_vec", n_conv_layers=2, use_activation=True, latent_mode="vector"),
     "conv2_relu_lstm_seq": ArchitectureSpec("conv2_relu_lstm_seq", n_conv_layers=2, use_activation=True, latent_mode="sequence"),
 }
 
@@ -83,20 +83,20 @@ def get_search_space(arch_name: str) -> dict[str, HyperparamRange]:
 TRAINING_DEFAULTS: dict[str, int | str] = {
     "hpo_epochs": 50,
     "grid_epochs": 50,
-    "final_epochs": 100,
+    "final_epochs": 150,
     "optimizer": "adam",
 }
 
 # Optimization orchestration defaults (overridable from the CLI in run_experiment).
 OPTIMIZATION_DEFAULTS: dict[str, int | float] = {
-    "n_hpo_trials": 150,
+    "n_hpo_trials": 50,
     "top_n": 10,
     "parsimony_tolerance": 0.05,  # relative tolerance on val_mse for parsimonious selection
     "grid_resolution": 3,  # points per hyperparameter in the narrowed grid search
-    "grid_max_combinations": 150,  # cap on the cartesian product, otherwise it explodes (e.g. 3^10)
-    "seed": 0,
+    "grid_max_combinations": 50,  # cap on the cartesian product, otherwise it explodes (e.g. 3^10)
+    "seed": 42,
     "n_jobs_hpo": 1,  # parallel Optuna trials (threads); >1 reduces exact seed-reproducibility
-    "n_jobs_gs": 1,  # parallel grid search combinations (threads); >1 reduces exact seed-reproducibility
+    "n_jobs_gs": 2,  # parallel grid search combinations (threads); >1 reduces exact seed-reproducibility
 }
 
 DAMAGE_BIN_EDGES: np.ndarray = np.round(np.arange(0.0, 1.01, 0.1), 2)  # 10 bins: [0-0.1) ... [0.9-1.0]

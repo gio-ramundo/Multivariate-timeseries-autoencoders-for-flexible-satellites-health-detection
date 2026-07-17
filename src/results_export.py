@@ -34,16 +34,42 @@ def plot_training_curves(curve: pd.DataFrame, out_path: Path) -> None:
     plt.close(fig)
 
 
-def plot_error_boxplot(errors_df: pd.DataFrame, out_path: Path, metric: str = "mse") -> None:
-    groups = [g for g in ("healthy", *DAMAGE_ORDER) if g in errors_df["dataset"].unique()]
-    values = [errors_df.loc[errors_df["dataset"] == g, metric].dropna().to_numpy() for g in groups]
+def _boxplot_by_dataset(df: pd.DataFrame, column: str, out_path: Path, ylabel: str, title: str) -> None:
+    groups = [g for g in ("healthy", *DAMAGE_ORDER) if g in df["dataset"].unique()]
+    values = [df.loc[df["dataset"] == g, column].dropna().to_numpy() for g in groups]
 
     fig, ax = plt.subplots(figsize=(6, 4))
     ax.boxplot(values, tick_labels=groups)
-    ax.set_ylabel(metric.upper())
-    ax.set_title(f"Error distribution ({metric.upper()}) by damage type")
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
     save_figure(fig, out_path)
     plt.close(fig)
+
+
+def plot_error_boxplot(errors_df: pd.DataFrame, out_path: Path, metric: str = "mse") -> None:
+    _boxplot_by_dataset(
+        errors_df, metric, out_path, metric.upper(), f"Error distribution ({metric.upper()}) by damage type"
+    )
+
+
+def plot_error_boxplot_per_feature(errors_per_feature_df: pd.DataFrame, out_dir: Path, metric: str = "mse") -> None:
+    """One boxplot per feature, saved as out_dir/feature<i>.pdf."""
+    prefix = f"{metric}_f"
+    feature_indices = sorted(
+        int(c[len(prefix) :]) for c in errors_per_feature_df.columns if c.startswith(prefix) and c[len(prefix) :].isdigit()
+    )
+    if not feature_indices:
+        raise ValueError(f"No '{prefix}<i>' columns found in errors_per_feature_df for metric '{metric}'")
+
+    for feature_idx in feature_indices:
+        column = f"{prefix}{feature_idx}"
+        _boxplot_by_dataset(
+            errors_per_feature_df,
+            column,
+            out_dir / f"feature{feature_idx}.pdf",
+            metric.upper(),
+            f"Error distribution ({metric.upper()}) by damage type - feature {feature_idx}",
+        )
 
 
 def _draw_error_vs_damage(
@@ -66,11 +92,12 @@ def _draw_error_vs_damage(
 
 
 def plot_error_vs_damage_parameter(
-    errors_df: pd.DataFrame, out_path: Path, metric: str = "mse", bin_edges: np.ndarray = DAMAGE_BIN_EDGES
+    errors_df: pd.DataFrame, out_dir: Path, metric: str = "mse", bin_edges: np.ndarray = DAMAGE_BIN_EDGES
 ) -> None:
     """One figure per damage type (all types overlaid would be unreadable): scatter of
     instance-level error vs damage parameter, a linear regression fit, and a polyline
-    connecting each bin's midpoint (x) to the mean error within that bin (y)."""
+    connecting each bin's midpoint (x) to the mean error within that bin (y).
+    Saved as out_dir/<damage_type>.pdf."""
     damage_types = [g for g in DAMAGE_ORDER if g in errors_df["dataset"].unique()]
     bin_labels = [f"{bin_edges[i]:.1f}-{bin_edges[i + 1]:.1f}" for i in range(len(bin_edges) - 1)]
     bin_midpoints = (bin_edges[:-1] + bin_edges[1:]) / 2
@@ -86,8 +113,7 @@ def plot_error_vs_damage_parameter(
         ax.set_title(f"{metric.upper()} vs damage parameter ({dt})")
         ax.legend()
 
-        dt_path = out_path.with_name(f"{out_path.stem}_{dt}{out_path.suffix}")
-        save_figure(fig, dt_path)
+        save_figure(fig, out_dir / f"{dt}.pdf")
         plt.close(fig)
 
 
@@ -95,7 +121,7 @@ def plot_error_vs_damage_parameter_per_feature(
     errors_per_feature_df: pd.DataFrame, out_dir: Path, metric: str = "mse", bin_edges: np.ndarray = DAMAGE_BIN_EDGES
 ) -> None:
     """Same plot as plot_error_vs_damage_parameter, but one figure per (feature,
-    damage type), organized as out_dir/<metric>/feature<i>_<damage_type>.pdf."""
+    damage type), organized as out_dir/<metric>/feature<i>/<damage_type>.pdf."""
     damage_types = [g for g in DAMAGE_ORDER if g in errors_per_feature_df["dataset"].unique()]
     bin_labels = [f"{bin_edges[i]:.1f}-{bin_edges[i + 1]:.1f}" for i in range(len(bin_edges) - 1)]
     bin_midpoints = (bin_edges[:-1] + bin_edges[1:]) / 2
@@ -121,7 +147,7 @@ def plot_error_vs_damage_parameter_per_feature(
             ax.set_title(f"{metric.upper()} vs damage parameter (feature {feature_idx}, {dt})")
             ax.legend()
 
-            save_figure(fig, metric_dir / f"feature{feature_idx}_{dt}.pdf")
+            save_figure(fig, metric_dir / f"feature{feature_idx}" / f"{dt}.pdf")
             plt.close(fig)
 
 
@@ -150,10 +176,13 @@ def plot_roc_curve(errors_df: pd.DataFrame, out_path: Path, metric: str = "mse")
     return aucs
 
 
-def plot_sample_reconstructions(x: np.ndarray, x_hat: np.ndarray, out_path: Path, n_samples: int = 4, seed: int = 0) -> None:
+def plot_sample_reconstructions(
+    x: np.ndarray, x_hat: np.ndarray, out_dir: Path, dataset_name: str, n_samples: int = 4, seed: int = 0
+) -> None:
     """One figure per feature (all features in a single figure would be too many
     plots to read): n_samples instances, randomly sampled, original vs
-    reconstructed for that one feature, stacked as subplots."""
+    reconstructed for that one feature, stacked as subplots.
+    Saved as out_dir/feature<i>/<dataset_name>.pdf."""
     n = min(n_samples, x.shape[0])
     rng = np.random.default_rng(seed)
     sample_idx = np.sort(rng.choice(x.shape[0], size=n, replace=False))
@@ -172,8 +201,7 @@ def plot_sample_reconstructions(x: np.ndarray, x_hat: np.ndarray, out_path: Path
         axes[-1].set_xlabel("timestep")
         fig.suptitle(f"Sample reconstruction (feature index {feature_idx})")
 
-        feature_path = out_path.with_name(f"{out_path.stem}_feature{feature_idx}{out_path.suffix}")
-        save_figure(fig, feature_path)
+        save_figure(fig, out_dir / f"feature{feature_idx}" / f"{dataset_name}.pdf")
         plt.close(fig)
 
 
@@ -205,27 +233,27 @@ def export_all_results(
 
         plot_training_curves(curve, results_paths.figures / "training_curve.pdf")
 
+        boxplot_dir = results_paths.figures / "boxplot"
         error_per_feature_dir = results_paths.figures / "error_per_feature_vs_damage_param"
 
         for metric in METRICS:
-            plot_error_boxplot(errors_df, results_paths.figures / f"error_boxplot_{metric}.pdf", metric=metric)
-            plot_error_vs_damage_parameter(errors_df, results_paths.figures / f"error_vs_damage_{metric}.pdf", metric=metric)
+            plot_error_boxplot(errors_df, boxplot_dir / metric / "complete.pdf", metric=metric)
+            plot_error_boxplot_per_feature(errors_per_feature_df, boxplot_dir / metric, metric=metric)
+
+            plot_error_vs_damage_parameter(errors_df, error_per_feature_dir / metric / "total", metric=metric)
             plot_error_vs_damage_parameter_per_feature(errors_per_feature_df, error_per_feature_dir, metric=metric)
+
             table = build_damage_range_table(errors_df, DAMAGE_BIN_EDGES, metric=metric)
             save_table(table, results_paths.tables / f"damage_range_table_{metric}", formats=("csv", "xlsx"))
 
         aucs = plot_roc_curve(errors_df, results_paths.figures / "roc_curve.pdf", metric="mse")
         save_table(pd.DataFrame({"auc": aucs}), results_paths.tables / "roc_auc", formats=("csv",))
 
-        plot_sample_reconstructions(
-            data.test, predictions["healthy"], results_paths.figures / "sample_reconstructions_healthy.pdf", seed=seed
-        )
+        sample_reconstructions_dir = results_paths.figures / "sample_reconstructions"
+        plot_sample_reconstructions(data.test, predictions["healthy"], sample_reconstructions_dir, "healthy", seed=seed)
         for damage_type in data.damage:
             plot_sample_reconstructions(
-                data.damage[damage_type],
-                predictions[damage_type],
-                results_paths.figures / f"sample_reconstructions_{damage_type}.pdf",
-                seed=seed,
+                data.damage[damage_type], predictions[damage_type], sample_reconstructions_dir, damage_type, seed=seed
             )
 
         logger.info("Results export completed in %s", results_paths.figures)
