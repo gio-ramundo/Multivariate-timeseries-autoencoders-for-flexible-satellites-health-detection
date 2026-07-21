@@ -72,7 +72,7 @@ def get_search_space(arch_name: str) -> dict[str, HyperparamRange]:
         "dropout": HyperparamRange("float", low=0.0, high=0.5),
         "weight_decay": HyperparamRange("float", low=1e-6, high=1e-2, log=True),
         "learning_rate": HyperparamRange("float", low=1e-4, high=1e-2, log=True),
-        "batch_size": HyperparamRange("categorical", choices=[8, 16, 32, 64]),
+        "batch_size": HyperparamRange("categorical", choices=[32, 64, 128]),
     }
     for layer_idx in range(spec.n_conv_layers):
         space[conv_layer_key("n_filters", layer_idx)] = HyperparamRange("categorical", choices=[8, 16, 32, 64, 128])
@@ -83,19 +83,19 @@ def get_search_space(arch_name: str) -> dict[str, HyperparamRange]:
 
 # Initial values: the user will fine-tune these manually later.
 TRAINING_DEFAULTS: dict[str, int | str] = {
-    "hpo_epochs": 50,
-    "grid_epochs": 50,
+    "hpo_epochs": 30,
+    "grid_epochs": 30,
     "final_epochs": 150,
     "optimizer": "adam",
 }
 
 # Optimization orchestration defaults (overridable from the CLI in run_experiment).
 OPTIMIZATION_DEFAULTS: dict[str, int | float] = {
-    "n_hpo_trials": 50,
+    "n_hpo_trials": 30,
     "top_n": 10,
     "parsimony_tolerance": 0.05,  # relative tolerance on val_mse for parsimonious selection
     "grid_resolution": 3,  # points per hyperparameter in the narrowed grid search
-    "grid_max_combinations": 50,  # cap on the cartesian product, otherwise it explodes (e.g. 3^10)
+    "grid_max_combinations": 30,  # cap on the cartesian product, otherwise it explodes (e.g. 3^10)
     "seed": 42,
     "n_jobs_hpo": 1,  # parallel Optuna trials (threads); >1 reduces exact seed-reproducibility
     "n_jobs_gs": 2,  # parallel grid search combinations (threads); >1 reduces exact seed-reproducibility
